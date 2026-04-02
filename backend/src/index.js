@@ -10,6 +10,7 @@ const matiereRoutes = require('./routes/matiere');
 const heureRoutes = require('./routes/heure');
 const dashboardRoutes = require('./routes/dashboard');
 const exportRoutes = require('./routes/export');
+const parametreRoutes = require('./routes/parametre');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -43,3 +44,4 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`\n🚀 Serveur sur http://localhost:${PORT}\n`);
 });
+app.use('/api/parametres', parametreRoutes);
