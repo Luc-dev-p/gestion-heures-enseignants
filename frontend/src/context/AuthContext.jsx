@@ -36,11 +36,22 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
-    toast.success('Déconnecté');
+    toast.success('Deconnecte');
+  };
+
+  const changePassword = async (currentPassword, newPassword) => {
+    try {
+      const res = await api.put('/auth/change-password', { currentPassword, newPassword });
+      toast.success(res.data.message);
+      return res.data;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Erreur');
+      throw err;
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, changePassword }}>
       {children}
     </AuthContext.Provider>
   );

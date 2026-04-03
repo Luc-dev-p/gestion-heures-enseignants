@@ -2,7 +2,7 @@ import { Outlet, NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, Users, BookOpen, Clock, LogOut, Menu, X,
-  GraduationCap, Download, Settings, Shield, User, ChevronDown, Wallet
+  GraduationCap, Download, Settings, Shield, User, ChevronDown, Wallet, KeyRound
 } from 'lucide-react';
 import { useState } from 'react';
 import { exportApi, downloadBlob } from '../api/exportApi';
@@ -11,10 +11,17 @@ import { useAnnee } from '../context/AnneeContext';
 import { CalendarDays } from 'lucide-react';
 
 export default function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, changePassword } = useAuth();
   const { annees, anneeActive, setAnneeActive, loading: loadingAnnees } = useAnnee();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+
+  // Modal changement mot de passe
+  const [passwordModal, setPasswordModal] = useState(false);
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [changingPwd, setChangingPwd] = useState(false);
 
   const handleExport = async (type, filename) => {
     try {
@@ -27,6 +34,27 @@ export default function Layout() {
       toast.success('Export réussi');
     } catch { toast.error('Erreur export'); }
     finally { setExporting(false); }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (newPwd !== confirmPwd) {
+      toast.error('Les mots de passe ne correspondent pas');
+      return;
+    }
+    if (newPwd.length < 6) {
+      toast.error('Minimum 6 caracteres requis');
+      return;
+    }
+    try {
+      setChangingPwd(true);
+      await changePassword(currentPwd, newPwd);
+      setPasswordModal(false);
+      setCurrentPwd('');
+      setNewPwd('');
+      setConfirmPwd('');
+    } catch { /* erreur déjà gérée */ }
+    finally { setChangingPwd(false); }
   };
 
   const enseignantLinks = [
@@ -76,7 +104,7 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* ===== SÉLECTEUR D'ANNÉE ACADÉMIQUE ===== */}
+        {/* Sélecteur d'année académique */}
         {!loadingAnnees && annees.length > 0 && (
           <div className="px-4 py-3 border-b border-violet-700 shrink-0">
             <div className="flex items-center gap-2">
@@ -135,7 +163,7 @@ export default function Layout() {
             </>
           )}
 
-          {/* Exports — admin / rh (déroulant au survol) */}
+          {/* Exports — admin / rh */}
           {isAdminOrRh && (
             <>
               <p className="px-4 pt-3 pb-1 text-[10px] text-violet-400 uppercase tracking-widest font-semibold">Exports</p>
@@ -168,7 +196,7 @@ export default function Layout() {
           )}
         </nav>
 
-        {/* Footer — toujours visible */}
+        {/* Footer */}
         <div className="shrink-0 p-4 border-t border-violet-700">
           <div className="flex items-center gap-3 px-3 py-2">
             <div className="w-8 h-8 rounded-full bg-violet-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
@@ -178,7 +206,10 @@ export default function Layout() {
               <p className="text-white text-sm font-medium truncate">{user?.nom || 'Admin'}</p>
               <p className="text-violet-300 text-xs truncate">{user?.role || 'Administrateur'}</p>
             </div>
-            <button onClick={logout} className="text-violet-300 hover:text-white shrink-0">
+            <button onClick={() => setPasswordModal(true)} className="text-violet-300 hover:text-white shrink-0" title="Changer mot de passe">
+              <KeyRound className="w-4 h-4" />
+            </button>
+            <button onClick={logout} className="text-violet-300 hover:text-white shrink-0" title="Se deconnecter">
               <LogOut className="w-4 h-4" />
             </button>
           </div>
@@ -190,18 +221,64 @@ export default function Layout() {
         <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Contenu principal */}
+      {/* Contenu principal — responsive padding */}
       <div className="flex-1 lg:ml-64">
-        <header className="bg-white shadow-sm border-b border-gray-100 px-6 py-4 flex items-center gap-4">
+        <header className="bg-white shadow-sm border-b border-gray-100 px-4 sm:px-6 py-4 flex items-center gap-4">
           <button className="lg:hidden text-gray-600" onClick={() => setSidebarOpen(true)}>
             <Menu className="w-6 h-6" />
           </button>
-          <h1 className="text-xl font-semibold text-gray-800">Gestion des Heures</h1>
+          <h1 className="text-lg sm:text-xl font-semibold text-gray-800">Gestion des Heures</h1>
         </header>
-        <main className="p-6">
+        <main className="p-4 sm:p-6">
           <Outlet />
         </main>
       </div>
+
+      {/* ===== MODAL CHANGER MOT DE PASSE ===== */}
+      {passwordModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-violet-500" /> Changer le mot de passe
+              </h3>
+              <button onClick={() => { setPasswordModal(false); setCurrentPwd(''); setNewPwd(''); setConfirmPwd(''); }} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleChangePassword} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mot de passe actuel</label>
+                <input type="password" value={currentPwd} onChange={(e) => setCurrentPwd(e.target.value)} required
+                  placeholder="Votre mot de passe actuel"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nouveau mot de passe</label>
+                <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} required minLength={6}
+                  placeholder="Min. 6 caracteres"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Confirmer</label>
+                <input type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} required minLength={6}
+                  placeholder="Retapez le nouveau mot de passe"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm" />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => { setPasswordModal(false); setCurrentPwd(''); setNewPwd(''); setConfirmPwd(''); }}
+                  className="flex-1 py-2.5 border border-gray-200 text-gray-600 font-medium rounded-xl hover:bg-gray-50">
+                  Annuler
+                </button>
+                <button type="submit" disabled={changingPwd}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white font-medium rounded-xl hover:from-violet-700 hover:to-fuchsia-600 disabled:opacity-50">
+                  {changingPwd ? 'Enregistrement...' : 'Confirmer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Scrollbar personnalisé */}
       <style>{`
