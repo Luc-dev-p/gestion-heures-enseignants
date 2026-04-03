@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
-import { Users, BookOpen, Clock, AlertTriangle, TrendingUp, Shield, Download, Trash2, RefreshCw } from 'lucide-react';
+import { Users, BookOpen, Clock, AlertTriangle, TrendingUp, Shield, Download, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useDataSync } from '../hooks/useDataSync';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -16,38 +17,39 @@ export default function Dashboard() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [exportingLogs, setExportingLogs] = useState(false);
 
-  useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        const [s, d, f, m, dep, l] = await Promise.all([
-          api.get('/dashboard/stats'),
-          api.get('/dashboard/departements'),
-          api.get('/dashboard/filieres'),
-          api.get('/dashboard/mois'),
-          api.get('/dashboard/depassements'),
-          api.get('/dashboard/logs'),
-        ]);
-        setStats(s.data);
-        setDepartements(d.data);
-        setFilieres(f.data);
-        setMois(m.data);
-        setDepassements(dep.data);
-        setLogs(l.data);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchAll();
-  }, []);
+  const fetchAll = async () => {
+    try {
+      const [s, d, f, m, dep, l] = await Promise.all([
+        api.get('/dashboard/stats'),
+        api.get('/dashboard/departements'),
+        api.get('/dashboard/filieres'),
+        api.get('/dashboard/mois'),
+        api.get('/dashboard/depassements'),
+        api.get('/dashboard/logs'),
+      ]);
+      setStats(s.data);
+      setDepartements(d.data);
+      setFilieres(f.data);
+      setMois(m.data);
+      setDepassements(dep.data);
+      setLogs(l.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchAll(); }, []);
+
+  // Rafraichir le dashboard quand enseignants, heures, utilisateurs ou matieres changent
+  useDataSync(['enseignants', 'utilisateurs', 'heures', 'matieres'], fetchAll);
 
   const handleResetLogs = async () => {
     try {
       await api.delete('/dashboard/logs');
       toast.success('Journal reinitialise');
       setConfirmReset(false);
-      // Recharger les logs
       const res = await api.get('/dashboard/logs');
       setLogs(res.data);
     } catch (err) {
@@ -229,13 +231,11 @@ export default function Dashboard() {
             </span>
           </h3>
           <div className="flex items-center gap-2">
-            {/* Export PDF */}
             <button onClick={handleExportLogsPdf} disabled={exportingLogs}
               className="flex items-center gap-2 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-all">
               <Download className="w-4 h-4" />
               {exportingLogs ? 'Export...' : 'Exporter PDF'}
             </button>
-            {/* Réinitialiser — admin uniquement */}
             {user?.role === 'admin' && (
               <button onClick={() => setConfirmReset(true)}
                 className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-all">

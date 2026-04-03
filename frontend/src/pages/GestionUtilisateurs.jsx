@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { userApi } from '../api/userApi';
 import toast from 'react-hot-toast';
 import { Plus, Edit, Trash2, Shield, X } from 'lucide-react';
+import { emitDataChange } from '../utils/dataSync';
 
 const ROLES = ['admin', 'rh', 'enseignant'];
 const ROLE_LABELS = { admin: 'Administrateur', rh: 'Ressources Humaines', enseignant: 'Enseignant' };
@@ -43,13 +44,25 @@ export default function GestionUtilisateurs() {
         await userApi.create(form);
         toast.success('Utilisateur cree');
       }
-      setModalOpen(false); fetchData();
+      setModalOpen(false);
+      setForm(emptyForm);
+      setEditing(null);
+      fetchData();
+      emitDataChange('utilisateurs');
+      if (form.role === 'enseignant') {
+        emitDataChange('enseignants');
+      }
     } catch (err) { toast.error(err.response?.data?.message || 'Erreur'); }
   };
 
   const handleDelete = async (id) => {
-    try { await userApi.delete(id); toast.success('Utilisateur supprime'); setConfirmDelete(null); fetchData(); }
-    catch (err) { toast.error(err.response?.data?.message || 'Erreur'); }
+    try {
+      await userApi.delete(id);
+      toast.success('Utilisateur supprime');
+      setConfirmDelete(null);
+      fetchData();
+      emitDataChange('utilisateurs');
+    } catch (err) { toast.error(err.response?.data?.message || 'Erreur'); }
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-violet-600"></div></div>;

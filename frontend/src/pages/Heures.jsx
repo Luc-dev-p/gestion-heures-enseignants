@@ -4,6 +4,8 @@ import { enseignantApi } from '../api/enseignantApi';
 import { matiereApi } from '../api/matiereApi';
 import toast from 'react-hot-toast';
 import { Plus, Trash2, Clock, Calculator, X, AlertTriangle, CheckCircle, XCircle, Filter } from 'lucide-react';
+import { useDataSync } from '../hooks/useDataSync';
+import { emitDataChange } from '../utils/dataSync';
 
 const TYPES = ['CM', 'TD', 'TP'];
 const emptyForm = { enseignant_id: '', matiere_id: '', date_cours: '', type_heure: 'CM', duree: 1.5, salle: '', observations: '' };
@@ -36,6 +38,9 @@ export default function Heures() {
 
   useEffect(() => { fetchData(); }, []);
 
+  // Ecouter les changements d'enseignants pour actualiser la liste deroulante
+  useDataSync(['enseignants', 'utilisateurs'], fetchData);
+
   // Charger le résumé quand on sélectionne un enseignant
   useEffect(() => {
     if (selectedEns) {
@@ -53,22 +58,35 @@ export default function Heures() {
       setModalOpen(false);
       setForm(emptyForm);
       fetchData();
+      emitDataChange('heures');
     } catch (err) { toast.error('Erreur'); }
   };
 
   const handleDelete = async (id) => {
-    try { await heureApi.delete(id); toast.success('Heure supprimee'); fetchData(); }
-    catch { toast.error('Erreur'); }
+    try {
+      await heureApi.delete(id);
+      toast.success('Heure supprimee');
+      fetchData();
+      emitDataChange('heures');
+    } catch { toast.error('Erreur'); }
   };
 
   const handleValider = async (id) => {
-    try { await heureApi.valider(id); toast.success('Heure validee'); fetchData(); }
-    catch { toast.error('Erreur'); }
+    try {
+      await heureApi.valider(id);
+      toast.success('Heure validee');
+      fetchData();
+      emitDataChange('heures');
+    } catch { toast.error('Erreur'); }
   };
 
   const handleRejeter = async (id) => {
-    try { await heureApi.rejeter(id); toast.success('Heure rejetee'); fetchData(); }
-    catch { toast.error('Erreur'); }
+    try {
+      await heureApi.rejeter(id);
+      toast.success('Heure rejetee');
+      fetchData();
+      emitDataChange('heures');
+    } catch { toast.error('Erreur'); }
   };
 
   // Filtrer par statut
@@ -244,7 +262,6 @@ export default function Heures() {
                   <td className="px-4 py-3 text-gray-600">{h.salle || '-'}</td>
                   <td className="px-4 py-3 text-center">
                     <div className="flex items-center justify-center gap-1">
-                      {/* Boutons Valider / Rejeter visibles uniquement si en_attente */}
                       {h.statut === 'en_attente' && (
                         <>
                           <button onClick={() => handleValider(h.id)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Valider">
@@ -255,7 +272,6 @@ export default function Heures() {
                           </button>
                         </>
                       )}
-                      {/* Bouton Valider visible si rejete (permet de changer d'avis) */}
                       {h.statut === 'rejete' && (
                         <button onClick={() => handleValider(h.id)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Valider">
                           <CheckCircle className="w-4 h-4" />

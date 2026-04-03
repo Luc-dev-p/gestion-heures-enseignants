@@ -3,6 +3,7 @@ import { enseignantApi } from '../api/enseignantApi';
 import toast from 'react-hot-toast';
 import { Plus, Edit, Trash2, Search, Users, UserCheck, UserX, X, FileSpreadsheet, FileText, Mail, Lock } from 'lucide-react';
 import { exportApi, downloadBlob } from '../api/exportApi';
+import { emitDataChange } from '../utils/dataSync';
 
 const GRADES = ['Assistant', 'Maître-Assistant', 'Professeur', 'Autres'];
 const STATUTS = ['Permanent', 'Vacataire'];
@@ -82,7 +83,11 @@ export default function Enseignants() {
         toast.success('Enseignant ajoute avec son compte de connexion');
       }
       setModalOpen(false);
+      setForm(emptyForm);
+      setEditing(null);
       fetchData();
+      emitDataChange('enseignants');
+      emitDataChange('utilisateurs');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Erreur');
     }
@@ -94,6 +99,8 @@ export default function Enseignants() {
       toast.success('Enseignant et compte supprimes');
       setConfirmDelete(null);
       fetchData();
+      emitDataChange('enseignants');
+      emitDataChange('utilisateurs');
     } catch (err) {
       toast.error('Erreur de suppression');
     }
@@ -269,7 +276,7 @@ export default function Enseignants() {
                 </div>
               </div>
 
-              {/* Séparateur : Infos de connexion */}
+              {/* Infos de connexion */}
               <div className="border-t border-gray-200 pt-4 mt-4">
                 <p className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                   <Lock className="w-4 h-4 text-violet-500" />

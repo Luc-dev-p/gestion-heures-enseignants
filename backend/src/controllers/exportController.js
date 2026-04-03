@@ -3,10 +3,6 @@ const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 require('dotenv').config();
 
-// ═══════════════════════════════════════════════════════════════
-// EXPORTS EXISTANTS (inchangés)
-// ═══════════════════════════════════════════════════════════════
-
 // Export Excel — État global des heures
 exports.exportExcelGlobal = async (req, res) => {
   try {
@@ -94,7 +90,7 @@ exports.exportExcelEnseignant = async (req, res) => {
   }
 };
 
-// Export PDF — Fiche individuelle (ancienne version simple)
+// Export PDF — Fiche individuelle
 exports.exportPdfEnseignant = async (req, res) => {
   try {
     const { id } = req.params;
@@ -141,17 +137,21 @@ exports.exportPdfEnseignant = async (req, res) => {
     doc.text('Matiere', 370, y + 7);
     y += 30;
 
-    heures.rows.forEach((h, i) => {
-      if (y > 720) { doc.addPage(); y = 50; }
-      if (i % 2 === 0) doc.rect(50, y, 495, 20).fill('#fafafa');
-      doc.fillColor('#000').fontSize(9);
-      doc.text(h.date_cours, 55, y + 5);
-      doc.text(h.type_heure, 150, y + 5);
-      doc.text(`${h.duree}h`, 220, y + 5);
-      doc.text(h.salle || '-', 290, y + 5);
-      doc.text(h.matiere || '-', 370, y + 5);
-      y += 22;
-    });
+    if (heures.rows.length === 0) {
+      doc.fillColor('#9ca3af').fontSize(10).text('Aucune heure enregistree pour cet enseignant.', 50, y + 20);
+    } else {
+      heures.rows.forEach((h, i) => {
+        if (y > 720) { doc.addPage(); y = 50; }
+        if (i % 2 === 0) doc.rect(50, y, 495, 20).fill('#fafafa');
+        doc.fillColor('#000').fontSize(9);
+        doc.text(h.date_cours, 55, y + 5);
+        doc.text(h.type_heure, 150, y + 5);
+        doc.text(`${h.duree}h`, 220, y + 5);
+        doc.text(h.salle || '-', 290, y + 5);
+        doc.text(h.matiere || '-', 370, y + 5);
+        y += 22;
+      });
+    }
 
     const totalPages = doc.bufferedPageRange().count;
     for (let i = 0; i < totalPages; i++) {
@@ -276,8 +276,10 @@ exports.exportPdfComptabilite = async (req, res) => {
     );
 
     const doc = new PDFDocument({ layout: 'landscape', size: 'A4' });
+        const dateStr = new Date().toISOString().slice(0, 10);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename=etat_comptabilite.pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=rapport_annuel_${dateStr}.pdf`);
+    res.setHeader('Cache-Control', 'no-store');
     doc.pipe(res);
 
     doc.rect(0, 0, doc.page.width, 60).fill('#6d28d9');
@@ -332,222 +334,225 @@ exports.exportPdfComptabilite = async (req, res) => {
   }
 };
 
-// ═══════════════════════════════════════════════════════════════
-// NOUVEAUX EXPORTS — Batch 2
-// ═══════════════════════════════════════════════════════════════
-
-// Export PDF — Bulletin de paiement individuel (belle mise en page)
-exports.exportBulletinIndividuel = async (req, res) => {
+// Export PDF — Bulletin de paiement individuel
+exports.exportPdfBulletin = async (req, res) => {
   try {
     const { id } = req.params;
 
     const ens = await query('SELECT * FROM enseignants WHERE id = $1', [id]);
     if (ens.rows.length === 0) return res.status(404).json({ message: 'Enseignant non trouve' });
+    const e = ens.rows[0];
 
-    // Équivalences
     const eqCM = await query("SELECT valeur FROM parametres WHERE cle = 'equivalence_cm_td'");
     const eqTP = await query("SELECT valeur FROM parametres WHERE cle = 'equivalence_tp_td'");
     const eqCmTd = parseFloat(eqCM.rows[0]?.valeur || 1.5);
     const eqTpTd = parseFloat(eqTP.rows[0]?.valeur || 1);
 
-    // Heures détaillées
     const heures = await query(
-      `SELECT h.date_cours, h.type_heure, h.duree, h.salle, h.observations,
-              m.intitule as matiere, m.filiere
+      `SELECT h.date_cours, h.type_heure, h.duree, h.salle, m.intitule as matiere, m.filiere, m.niveau
        FROM heures h
        LEFT JOIN matieres m ON h.matiere_id = m.id
        WHERE h.enseignant_id = $1
-       ORDER BY h.type_heure, h.date_cours DESC`,
+       ORDER BY h.type_heure, h.date_cours`,
       [id]
     );
 
-    // Totaux par type
-    const totaux = await query(
-      `SELECT type_heure, SUM(duree) as total
-       FROM heures WHERE enseignant_id = $1 GROUP BY type_heure`,
-      [id]
-    );
-
-    let cm = 0, td = 0, tp = 0;
-    totaux.rows.forEach(h => {
-      if (h.type_heure === 'CM') cm = parseFloat(h.total);
-      else if (h.type_heure === 'TD') td = parseFloat(h.total);
-      else if (h.type_heure === 'TP') tp = parseFloat(h.total);
-    });
-
+    const cm = heures.rows.reduce((s, h) => s + (h.type_heure === 'CM' ? parseFloat(h.duree) : 0), 0);
+    const td = heures.rows.reduce((s, h) => s + (h.type_heure === 'TD' ? parseFloat(h.duree) : 0), 0);
+    const tp = heures.rows.reduce((s, h) => s + (h.type_heure === 'TP' ? parseFloat(h.duree) : 0), 0);
     const eqTD = (cm * eqCmTd) + td + (tp * eqTpTd);
-    const e = ens.rows[0];
     const contract = parseFloat(e.heures_contractuelles) || 0;
-    const compl = Math.max(0, eqTD - contract);
+    const complementaires = Math.max(0, eqTD - contract);
     const taux = parseFloat(e.taux_horaire) || 0;
-    const montant = compl * taux;
+    const montant = complementaires * taux;
 
-    // Dernier paiement
-    const lastPaiement = await query(
-      `SELECT * FROM paiements WHERE enseignant_id = $1 ORDER BY created_at DESC LIMIT 1`,
+    const paiements = await query(
+      `SELECT p.periode, p.montant, p.nb_heures_eq_td, p.nb_heures_complementaires, p.date_paiement, p.notes
+       FROM paiements p
+       WHERE p.enseignant_id = $1
+       ORDER BY p.created_at DESC`,
       [id]
     );
 
-    // Année active
-    const anneeActive = await query("SELECT libelle FROM annees_academiques WHERE is_active = true LIMIT 1");
+    // Année académique active
+    const anneeRes = await query("SELECT libelle FROM annees_academiques WHERE is_active = true LIMIT 1");
+    const anneeLabel = anneeRes.rows[0]?.libelle || '';
 
-    // ─── GÉNÉRATION PDF ───
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const doc = new PDFDocument({ size: 'A4', margin: 40, autoFirstPage: false });
     const fileName = `Bulletin_${e.nom}_${e.prenom}.pdf`.replace(/\s+/g, '_');
-
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
     doc.pipe(res);
 
-    const W = doc.page.width - 80; // largeur utile
+    doc.addPage();
+    const pageW = doc.page.width - 80;
+    const pgH = doc.page.height;
 
-    // ── EN-TÊTE ──
+    // ===== EN-TÊTE =====
     doc.rect(0, 0, doc.page.width, 90).fill('#6d28d9');
+    doc.fontSize(22).fillColor('#fff').text('BULLETIN DE PAIEMENT', 40, 18, { align: 'center' });
+    doc.fontSize(10).fillColor('#e9d5ff').text('Heures complementaires des enseignants', 40, 45, { align: 'center' });
+    doc.fontSize(8).fillColor('#c4b5fd').text(`${anneeLabel ? 'Annee : ' + anneeLabel + '  |  ' : ''}Genere le ${new Date().toLocaleDateString('fr-FR')} a ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`, 40, 65, { align: 'center' });
 
-    // Ligne dorée
-    doc.rect(0, 88, doc.page.width, 3).fill('#f59e0b');
+    // ===== INFOS ENSEIGNANT =====
+    let y = 108;
+    doc.roundedRect(40, y, pageW, 80, 6).fill('#f3f0ff');
+    doc.fillColor('#6d28d9').fontSize(12).text('Informations de l\'enseignant', 55, y + 8);
+    doc.fillColor('#374151').fontSize(10);
+    doc.text(`Nom complet :  ${e.prenom} ${e.nom}`, 55, y + 28);
+    doc.text(`Grade :  ${e.grade}    |    Statut :  ${e.statut}`, 55, y + 43);
+    doc.text(`Departement :  ${e.departement || '-'}`, 55, y + 58);
+    if (e.matricule) doc.text(`Matricule :  ${e.matricule}`, 350, y + 58);
+    y += 95;
 
-    doc.fontSize(10).fillColor('#e9d5ff').text('REPUBLIQUE ALGERIENNE DEMOCRATIQUE ET POPULAIRE', 40, 15, { align: 'center', width: W });
-    doc.fontSize(7).fillColor('#c4b5fd').text('Ministere de l\'Enseignement Superieur et de la Recherche Scientifique', 40, 28, { align: 'center', width: W });
-    doc.fontSize(14).fillColor('#fff').text('UNIVERSITE', 40, 42, { align: 'center', width: W, characterSpacing: 3 });
-    doc.fontSize(16).fillColor('#fef08a').text('BULLETIN DE PAIEMENT', 40, 62, { align: 'center', width: W });
+    // ===== RÉSUMÉ HORAIRES — Grille 3x2 bien espacée =====
+    doc.roundedRect(40, y, pageW, 128, 6).stroke('#e5e7eb');
+    doc.fillColor('#6d28d9').fontSize(12).text('Resume des heures', 55, y + 8);
 
-    // ── INFOS ENSEIGNANT ──
-    let y = 110;
-
-    // Cadre infos
-    doc.roundedRect(40, y, W, 85, 6).lineWidth(1.5).stroke('#6d28d9');
-    doc.rect(40, y, W, 28).fill('#f5f3ff');
-
-    doc.fontSize(11).fillColor('#6d28d9').text(`M. / Mme  ${e.prenom} ${e.nom}`, 55, y + 7, { width: W - 30 });
-    doc.fontSize(8).fillColor('#7c3aed').text(
-      `Grade: ${e.grade}   |   Statut: ${e.statut}   |   Departement: ${e.departement}`,
-      55, y + 32
-    );
-    doc.fontSize(8).fillColor('#6b7280').text(
-      `Heures contractuelles: ${contract}h   |   Taux horaire: ${taux} FCFA/h   |   Annee: ${anneeActive.rows[0]?.libelle || '2025-2026'}`,
-      55, y + 48
-    );
-
-    // ── RÉSUMÉ HEURES ──
-    y = 210;
-    doc.roundedRect(40, y, W, 60, 6).lineWidth(1).stroke('#e5e7eb');
-
-    const boxW = W / 4;
-    const types = [
-      { label: 'Heures CM', value: `${cm}h`, equiv: `${(cm * eqCmTd).toFixed(1)}h Eq-TD`, color: '#6d28d9', bg: '#f5f3ff' },
-      { label: 'Heures TD', value: `${td}h`, equiv: `${td.toFixed(1)}h Eq-TD`, color: '#2563eb', bg: '#eff6ff' },
-      { label: 'Heures TP', value: `${tp}h`, equiv: `${(tp * eqTpTd).toFixed(1)}h Eq-TD`, color: '#059669', bg: '#ecfdf5' },
-      { label: 'Total Eq-TD', value: `${eqTD.toFixed(1)}h`, equiv: compl > 0 ? `+${compl.toFixed(1)}h compl.` : '', color: '#d97706', bg: '#fffbeb' },
+    const boxW = (pageW - 40) / 3;
+    const boxH = 48;
+    const boxes = [
+      { label: 'CM', value: `${cm.toFixed(1)} h`, color: '#7c3aed', bg: '#f5f3ff', sub: `= ${(cm * eqCmTd).toFixed(1)}h eq TD (coef. ${eqCmTd})` },
+      { label: 'TD', value: `${td.toFixed(1)} h`, color: '#2563eb', bg: '#eff6ff', sub: `= ${td.toFixed(1)}h eq TD (coef. 1)` },
+      { label: 'TP', value: `${tp.toFixed(1)} h`, color: '#059669', bg: '#ecfdf5', sub: `= ${(tp * eqTpTd).toFixed(1)}h eq TD (coef. ${eqTpTd})` },
+      { label: 'Total Eq-TD', value: `${eqTD.toFixed(1)} h`, color: '#374151', bg: '#f9fafb', sub: 'Heures reelles ponderees' },
+      { label: 'Heures contractuelles', value: `${contract} h`, color: '#6d28d9', bg: '#ede9fe', sub: 'Volume horaire de base' },
+      { label: 'Heures complementaires', value: `${complementaires.toFixed(1)} h`, color: complementaires > 0 ? '#dc2626' : '#059669', bg: complementaires > 0 ? '#fef2f2' : '#ecfdf5', sub: complementaires > 0 ? 'Depassement a payer' : 'Aucun depassement' },
     ];
 
-    types.forEach((t, i) => {
-      const bx = 40 + (i * boxW);
-      doc.rect(bx, y, boxW, 60).fill(t.bg);
-      if (i < 3) doc.moveTo(bx + boxW, y).lineTo(bx + boxW, y + 60).lineWidth(0.5).stroke('#e5e7eb');
-      doc.fontSize(7).fillColor('#6b7280').text(t.label, bx + 8, y + 8, { width: boxW - 16 });
-      doc.fontSize(16).fillColor(t.color).text(t.value, bx + 8, y + 22, { width: boxW - 16 });
-      doc.fontSize(7).fillColor('#9ca3af').text(t.equiv, bx + 8, y + 46, { width: boxW - 16 });
+    boxes.forEach((item, i) => {
+      const col = i % 3;
+      const row = Math.floor(i / 3);
+      const bx = 50 + col * (boxW + 5);
+      const by = y + 28 + row * (boxH + 6);
+      doc.roundedRect(bx, by, boxW, boxH, 4).fill(item.bg);
+      doc.fillColor(item.color).fontSize(8).text(item.label, bx + 8, by + 5);
+      doc.fillColor(item.color).fontSize(16).text(item.value, bx + 8, by + 16, { width: boxW - 16 });
+      doc.fillColor('#6b7280').fontSize(6.5).text(item.sub, bx + 8, by + 37, { width: boxW - 16 });
     });
 
-    // ── CALCUL DU PAIEMENT ──
-    y = 285;
-    doc.roundedRect(40, y, W, 80, 6).lineWidth(1.5).stroke('#059669');
-    doc.rect(40, y, W, 24).fill('#ecfdf5');
-    doc.fontSize(10).fillColor('#059669').text('DETAIL DU CALCUL', 55, y + 6, { width: W - 30 });
+    y += 138;
 
-    doc.fontSize(9).fillColor('#374151');
-    doc.text(`Heures equivalentes TD realisees: ${eqTD.toFixed(1)}h`, 55, y + 32);
-    doc.text(`Heures contractuelles: ${contract}h`, 55, y + 46);
-    doc.text(`Heures complementaires: ${compl.toFixed(1)}h`, 55, y + 60);
+    // ===== MONTANT =====
+    if (montant > 0) {
+      doc.roundedRect(40, y, pageW, 58, 6).fill('#ecfdf5').stroke('#a7f3d0');
+      doc.fillColor('#059669').fontSize(9).text('Montant des heures complementaires', 55, y + 8);
+      doc.fillColor('#059669').fontSize(24).text(`${montant.toLocaleString('fr-FR')} FCFA`, 55, y + 22);
+      doc.fillColor('#6b7280').fontSize(8).text(`Taux horaire : ${taux.toLocaleString('fr-FR')} FCFA/h  x  ${complementaires.toFixed(1)}h complementaires`, 55, y + 44);
+    } else {
+      doc.roundedRect(40, y, pageW, 58, 6).fill('#f9fafb').stroke('#e5e7eb');
+      doc.fillColor('#9ca3af').fontSize(9).text('Montant des heures complementaires', 55, y + 8);
+      doc.fillColor('#d1d5db').fontSize(24).text('0 FCFA', 55, y + 22);
+      doc.fillColor('#9ca3af').fontSize(8).text(complementaires === 0 ? 'Aucune heure complementaire - volume horaire non depasse' : 'Taux horaire non defini', 55, y + 44);
+    }
+    y += 72;
 
-    doc.fontSize(9).fillColor('#374151');
-    doc.text(`Taux horaire: ${taux} FCFA`, 320, y + 32);
+    // ===== DÉTAIL DES HEURES =====
+    if (heures.rows.length > 0) {
+      if (y > 600) { doc.addPage(); y = 50; }
+      doc.fillColor('#6d28d9').fontSize(12).text('Detail des heures', 40, y);
+      y += 18;
 
-    // Montant
-    doc.roundedRect(320, y + 46, W - 280, 30, 4).fill('#059669');
-    doc.fontSize(12).fillColor('#fff').text('MONTANT:', 332, y + 52);
-    doc.fontSize(14).fillColor('#fef08a').text(`${montant.toLocaleString()} FCFA`, 420, y + 50);
+      doc.rect(40, y, pageW, 18).fill('#6d28d9');
+      doc.fillColor('#fff').fontSize(7);
+      doc.text('Matiere', 45, y + 5, { width: 140 });
+      doc.text('Filiere', 190, y + 5, { width: 70 });
+      doc.text('Type', 265, y + 5);
+      doc.text('Duree', 295, y + 5);
+      doc.text('Eq-TD', 340, y + 5);
+      doc.text('Salle', 390, y + 5);
+      doc.text('Date', 440, y + 5);
+      y += 22;
 
-    // ── DÉTAIL DES HEURES ──
-    y = 380;
-    doc.fontSize(10).fillColor('#374151').text('DETAIL DES HEURES EFFECTUEES', 40, y);
-    y += 18;
+      heures.rows.forEach((h, i) => {
+        if (y > 700) { doc.addPage(); y = 50; }
+        if (i % 2 === 0) doc.rect(40, y, pageW, 16).fill('#fafafa');
+        let eqH = 0;
+        if (h.type_heure === 'CM') eqH = parseFloat(h.duree) * eqCmTd;
+        else if (h.type_heure === 'TD') eqH = parseFloat(h.duree);
+        else if (h.type_heure === 'TP') eqH = parseFloat(h.duree) * eqTpTd;
 
-    const cols = [40, 120, 280, 345, 400, 480];
-    const colHeaders = ['Date', 'Matiere', 'Filiere', 'Type', 'Duree', 'Salle'];
+        doc.fillColor('#374151').fontSize(7);
+        doc.text(h.matiere || '-', 45, y + 4, { width: 140 });
+        doc.text(h.filiere || '-', 190, y + 4, { width: 70 });
+        doc.text(h.type_heure, 265, y + 4);
+        doc.text(`${h.duree}h`, 295, y + 4);
+        doc.text(`${eqH.toFixed(2)}h`, 340, y + 4);
+        doc.text(h.salle || '-', 390, y + 4);
+        doc.text(h.date_cours || '-', 440, y + 4);
+        y += 17;
+      });
+      y += 10;
+    } else {
+      doc.roundedRect(40, y, pageW, 40, 6).fill('#f9fafb').stroke('#e5e7eb');
+      doc.fillColor('#9ca3af').fontSize(9).text('Aucune heure enregistree pour cet enseignant.', 0, y + 14, { align: 'center', width: doc.page.width });
+      y += 50;
+    }
 
-    // En-tête tableau
-    doc.rect(40, y, W, 18).fill('#f3f0ff');
-    doc.fontSize(7).fillColor('#6d28d9');
-    colHeaders.forEach((h, i) => doc.text(h, cols[i] + 3, y + 5));
+    // ===== HISTORIQUE PAIEMENTS =====
+    if (paiements.rows.length > 0) {
+      if (y > 580) { doc.addPage(); y = 50; }
+      doc.fillColor('#6d28d9').fontSize(12).text('Historique des paiements', 40, y);
+      y += 18;
 
+      paiements.rows.forEach((p) => {
+        if (y > 700) { doc.addPage(); y = 50; }
+        doc.roundedRect(40, y, pageW, 38, 4).fill('#f0fdf4').stroke('#bbf7d0');
+        doc.fillColor('#059669').fontSize(10).text(`${parseFloat(p.montant).toLocaleString('fr-FR')} FCFA`, 55, y + 6);
+        doc.fillColor('#059669').fontSize(7).text(`Periode : ${p.periode}`, 250, y + 6);
+        doc.fillColor('#6b7280').fontSize(7);
+        doc.text(`Eq-TD : ${parseFloat(p.nb_heures_eq_td || 0).toFixed(1)}h`, 250, y + 18);
+        doc.text(`Compl. : ${parseFloat(p.nb_heures_complementaires || 0).toFixed(1)}h`, 370, y + 6);
+        doc.text(`Date : ${p.date_paiement ? new Date(p.date_paiement).toLocaleDateString('fr-FR') : '-'}`, 370, y + 18);
+        if (p.notes) doc.text(`Note : ${p.notes}`, 55, y + 28);
+        y += 45;
+      });
+      y += 10;
+    }
+
+    // ===== SIGNATURES =====
+    if (y > 600) { doc.addPage(); y = 60; }
     y += 20;
-    heures.rows.forEach((h, i) => {
-      if (y > 710) {
-        doc.addPage();
-        y = 50;
-        doc.rect(40, y, W, 18).fill('#f3f0ff');
-        doc.fontSize(7).fillColor('#6d28d9');
-        colHeaders.forEach((hh, i) => doc.text(hh, cols[i] + 3, y + 5));
-        y += 20;
-      }
-      if (i % 2 === 0) doc.rect(40, y, W, 14).fill('#fafafa');
-      doc.fontSize(7).fillColor('#374151');
-      doc.text(h.date_cours || '-', cols[0] + 3, y + 3, { width: 75 });
-      doc.text(h.matiere || '-', cols[1] + 3, y + 3, { width: 155, ellipsis: true });
-      doc.text(h.filiere || '-', cols[2] + 3, y + 3, { width: 60, ellipsis: true });
-      doc.text(h.type_heure, cols[3] + 3, y + 3, { width: 50 });
-      doc.text(`${h.duree}h`, cols[4] + 3, y + 3, { width: 70 });
-      doc.text(h.salle || '-', cols[5] + 3, y + 3, { width: 50 });
-      y += 16;
+    doc.moveTo(40, y).lineTo(40 + pageW, y).stroke('#d1d5db');
+    y += 10;
+    doc.fillColor('#374151').fontSize(9).text('Visas et signatures', 40, y);
+    y += 20;
+
+    const signW = (pageW - 40) / 3;
+    ['Enseignant', 'Chef de departement', 'DRH / Doyen'].forEach((label, i) => {
+      const sx = 40 + i * (signW + 20);
+      doc.moveTo(sx, y + 35).lineTo(sx + signW, y + 35).stroke('#d1d5db');
+      doc.fillColor('#374151').fontSize(8).text(label, sx, y + 40, { width: signW, align: 'center' });
+      doc.fillColor('#9ca3af').fontSize(7).text('Nom, signature et cachet', sx, y + 52, { width: signW, align: 'center' });
     });
 
-    // ── SIGNATURES ──
-    y = Math.max(y + 30, 620);
-    doc.moveTo(40, y).lineTo(40 + W, y).lineWidth(0.5).stroke('#d1d5db');
-    y += 10;
-
-    doc.fontSize(8).fillColor('#6b7280');
-    doc.text(`Fait le ${new Date().toLocaleDateString('fr-FR')}`, 40, y);
-    y += 25;
-
-    // 3 colonnes signature
-    const sigW = W / 3;
-    doc.moveTo(40, y + 40).lineTo(40 + sigW - 10, y + 40).lineWidth(0.5).stroke('#374151');
-    doc.moveTo(40 + sigW + 10, y + 40).lineTo(40 + 2 * sigW - 10, y + 40).stroke('#374151');
-    doc.moveTo(40 + 2 * sigW + 10, y + 40).lineTo(40 + W, y + 40).stroke('#374151');
-
-    doc.fontSize(7).fillColor('#374151');
-    doc.text('Enseignant', 40, y + 45, { width: sigW - 10, align: 'center' });
-    doc.text('Chef de Departement', 40 + sigW + 10, y + 45, { width: sigW - 20, align: 'center' });
-    doc.text('Doyen / Responsable', 40 + 2 * sigW + 10, y + 45, { width: sigW - 10, align: 'center' });
-
-    // ── PIED DE PAGE ──
+    // ===== PIED DE PAGE =====
     const totalPages = doc.bufferedPageRange().count;
     for (let i = 0; i < totalPages; i++) {
       doc.switchToPage(i);
-      doc.rect(0, doc.page.height - 25, doc.page.width, 25).fill('#f9fafb');
       doc.fontSize(7).fillColor('#9ca3af').text(
-        `Bulletin genere par GHES - ${new Date().toLocaleDateString('fr-FR')} - Page ${i + 1}/${totalPages}`,
-        40, doc.page.height - 18, { align: 'center', width: W }
+        `GestHeures - Bulletin de paiement | Genere automatiquement | Page ${i + 1}/${totalPages}`,
+        40, pgH - 25, { align: 'center', width: pageW }
       );
     }
 
     doc.end();
   } catch (err) {
-    console.error('Erreur bulletin:', err);
-    res.status(500).json({ message: 'Erreur export bulletin' });
+    console.error('Erreur bulletin PDF:', err);
+    res.status(500).json({ message: 'Erreur export' });
   }
 };
 
 // Export PDF — Rapport annuel global
-exports.exportRapportAnnuel = async (req, res) => {
+exports.exportPdfRapportAnnuel = async (req, res) => {
   try {
     const eqCM = await query("SELECT valeur FROM parametres WHERE cle = 'equivalence_cm_td'");
     const eqTP = await query("SELECT valeur FROM parametres WHERE cle = 'equivalence_tp_td'");
     const eqCmTd = parseFloat(eqCM.rows[0]?.valeur || 1.5);
     const eqTpTd = parseFloat(eqTP.rows[0]?.valeur || 1);
+
+    const annee = await query("SELECT libelle FROM annees_academiques WHERE is_active = true LIMIT 1");
+    const anneeLabel = annee.rows[0]?.libelle || new Date().getFullYear().toString();
 
     const result = await query(
       `SELECT e.id, e.nom, e.prenom, e.grade, e.statut, e.departement,
@@ -557,16 +562,20 @@ exports.exportRapportAnnuel = async (req, res) => {
               SUM(CASE WHEN h.type_heure = 'TP' THEN h.duree ELSE 0 END) as tp,
               SUM(CASE WHEN h.type_heure = 'CM' THEN h.duree * ${eqCmTd}
                        WHEN h.type_heure = 'TD' THEN h.duree
-                       WHEN h.type_heure = 'TP' THEN h.duree * ${eqTpTd} ELSE 0 END) as heures_eq_td
+                       WHEN h.type_heure = 'TP' THEN h.duree * ${eqTpTd} ELSE 0 END) as heures_eq_td,
+              COUNT(h.id) as nb_seances
        FROM enseignants e
        LEFT JOIN heures h ON e.id = h.enseignant_id
        GROUP BY e.id
        ORDER BY e.departement, e.nom, e.prenom`
     );
 
-    // Stats par département
-    const deptStats = await query(
-      `SELECT e.departement, COUNT(*) as nb_enseignants,
+    const statsPaiement = await query(
+      `SELECT COUNT(*) as nb, COALESCE(SUM(montant), 0) as total_paye, COUNT(DISTINCT enseignant_id) as nb_enseignants FROM paiements`
+    );
+
+    const deps = await query(
+      `SELECT e.departement, COUNT(DISTINCT e.id) as nb_ens,
               SUM(CASE WHEN h.type_heure = 'CM' THEN h.duree * ${eqCmTd}
                        WHEN h.type_heure = 'TD' THEN h.duree
                        WHEN h.type_heure = 'TP' THEN h.duree * ${eqTpTd} ELSE 0 END) as total_eq_td
@@ -576,166 +585,138 @@ exports.exportRapportAnnuel = async (req, res) => {
        ORDER BY total_eq_td DESC`
     );
 
-    // Paiements totaux
-    const paiements = await query('SELECT COALESCE(SUM(montant), 0) as total_paye, COUNT(*) as nb_paiements FROM paiements');
-
-    const anneeActive = await query("SELECT libelle FROM annees_academiques WHERE is_active = true LIMIT 1");
-
-    // ─── GÉNÉRATION PDF ───
     const doc = new PDFDocument({ layout: 'landscape', size: 'A4' });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename=rapport_annuel.pdf');
     doc.pipe(res);
 
-    const PW = doc.page.width;
-    const PH = doc.page.height;
+    const pgW = doc.page.width;
+    const pgH = doc.page.height;
 
-    // ── EN-TÊTE ──
-    doc.rect(0, 0, PW, 70).fill('#6d28d9');
-    doc.rect(0, 68, PW, 3).fill('#f59e0b');
-    doc.fontSize(18).fillColor('#fff').text('RAPPORT ANNUEL GLOBAL', 0, 15, { align: 'center' });
-    doc.fontSize(9).fillColor('#e9d5ff').text(
-      `Annee academique: ${anneeActive.rows[0]?.libelle || '2025-2026'}  |  Genere le ${new Date().toLocaleDateString('fr-FR')}`,
-      0, 42, { align: 'center' }
-    );
+    doc.rect(0, 0, pgW, 70).fill('#6d28d9');
+    doc.fontSize(20).fillColor('#fff').text('RAPPORT ANNUEL — GESTION DES HEURES', 0, 15, { align: 'center' });
+    doc.fontSize(10).fillColor('#e9d5ff').text(`Annee academique: ${anneeLabel}  |  Genere le ${new Date().toLocaleDateString('fr-FR')}`, 0, 45, { align: 'center' });
 
-    // ── STATISTIQUES GLOBALES ──
-    let y = 85;
-    const totalEnseignants = result.rows.length;
-    let totalCM = 0, totalTD = 0, totalTP = 0, totalEqTD = 0, totalMontant = 0, totalCompl = 0;
+    let y = 90;
 
+    let totalEqTD = 0, totalCompl = 0, totalMontant = 0, nbDepassement = 0;
     result.rows.forEach(r => {
-      totalCM += parseFloat(r.cm) || 0;
-      totalTD += parseFloat(r.td) || 0;
-      totalTP += parseFloat(r.tp) || 0;
-      const eq = parseFloat(r.heures_eq_td) || 0;
-      totalEqTD += eq;
-      const c = parseFloat(r.heures_contractuelles) || 0;
-      const compl = Math.max(0, eq - c);
+      const eqTD = parseFloat(r.heures_eq_td) || 0;
+      const contract = parseFloat(r.heures_contractuelles) || 0;
+      const compl = Math.max(0, eqTD - contract);
+      const taux = parseFloat(r.taux_horaire) || 0;
+      totalEqTD += eqTD;
       totalCompl += compl;
-      totalMontant += compl * (parseFloat(r.taux_horaire) || 0);
+      totalMontant += compl * taux;
+      if (compl > 0) nbDepassement++;
     });
 
-    const statsBoxes = [
-      { label: 'Enseignants', value: totalEnseignants, color: '#6d28d9' },
-      { label: 'Heures CM', value: `${totalCM.toFixed(1)}h`, color: '#2563eb' },
-      { label: 'Heures TD', value: `${totalTD.toFixed(1)}h`, color: '#7c3aed' },
-      { label: 'Heures TP', value: `${totalTP.toFixed(1)}h`, color: '#059669' },
-      { label: 'Total Eq-TD', value: `${totalEqTD.toFixed(1)}h`, color: '#d97706' },
-      { label: 'Montant Total', value: `${totalMontant.toLocaleString()} FCFA`, color: '#dc2626' },
+    const kpis = [
+      { label: 'Enseignants', value: result.rows.length.toString(), color: '#7c3aed', bg: '#f5f3ff' },
+      { label: 'Total Eq-TD', value: `${totalEqTD.toFixed(1)}h`, color: '#2563eb', bg: '#eff6ff' },
+      { label: 'Heures compl.', value: `${totalCompl.toFixed(1)}h`, color: '#d97706', bg: '#fffbeb' },
+      { label: 'Depassements', value: nbDepassement.toString(), color: '#dc2626', bg: '#fef2f2' },
+      { label: 'Montant total', value: `${totalMontant.toLocaleString('fr-FR')} FCFA`, color: '#059669', bg: '#ecfdf5' },
+      { label: 'Deja paye', value: `${parseFloat(statsPaiement.rows[0]?.total_paye || 0).toLocaleString('fr-FR')} FCFA`, color: '#0d9488', bg: '#f0fdfa' },
     ];
 
-    const statW = (PW - 50) / statsBoxes.length;
-    statsBoxes.forEach((s, i) => {
-      const bx = 25 + (i * statW);
-      doc.roundedRect(bx, y, statW - 8, 40, 4).fill('#f9fafb').stroke('#e5e7eb');
-      doc.rect(bx, y, 4, 40).fill(s.color);
-      doc.fontSize(7).fillColor('#6b7280').text(s.label, bx + 12, y + 6);
-      doc.fontSize(13).fillColor(s.color).text(s.value, bx + 12, y + 20);
+    const kpiW = (pgW - 100) / 6;
+    kpis.forEach((kpi, i) => {
+      const kx = 30 + i * (kpiW + 6);
+      doc.roundedRect(kx, y, kpiW, 52, 5).fill(kpi.bg).stroke('#e5e7eb');
+      doc.fillColor(kpi.color).fontSize(7).text(kpi.label, kx + 8, y + 6, { width: kpiW - 16 });
+      doc.fillColor(kpi.color).fontSize(14).text(kpi.value, kx + 8, y + 20, { width: kpiW - 16 });
     });
+    y += 70;
 
-    y += 55;
+    doc.fillColor('#6d28d9').fontSize(11).text('Repartition par departement', 30, y);
+    y += 18;
 
-    // ── RÉPARTITION PAR DÉPARTEMENT ──
-    doc.fontSize(10).fillColor('#374151').text('Repartition par departement', 25, y);
-    y += 15;
+    const depColX = [30, 180, 310, 440, 560];
+    doc.rect(25, y, pgW - 50, 18).fill('#6d28d9');
+    doc.fillColor('#fff').fontSize(8);
+    doc.text('Departement', depColX[0], y + 4);
+    doc.text('Enseignants', depColX[1], y + 4);
+    doc.text('Total Eq-TD', depColX[2], y + 4);
+    doc.text('Part (%)', depColX[3], y + 4);
+    doc.text('Barre', depColX[4], y + 4);
+    y += 22;
 
-    const dCols = [25, 200, 320, 440, 580];
-    doc.rect(25, y, PW - 50, 18).fill('#f3f0ff');
-    doc.fontSize(7).fillColor('#6d28d9');
-    doc.text('Departement', dCols[0] + 5, y + 5);
-    doc.text('Nb Enseignants', dCols[1] + 5, y + 5);
-    doc.text('Heures Eq-TD', dCols[2] + 5, y + 5);
-    doc.text('% du Total', dCols[3] + 5, y + 5);
-    doc.text('Barre', dCols[4] + 5, y + 5);
+    deps.rows.forEach((d, i) => {
+      if (y > pgH - 80) { doc.addPage(); y = 50; }
+      const eqTd = parseFloat(d.total_eq_td) || 0;
+      const pct = totalEqTD > 0 ? (eqTd / totalEqTD * 100) : 0;
+      if (i % 2 === 0) doc.rect(25, y, pgW - 50, 16).fill('#fafafa');
+      doc.fillColor('#374151').fontSize(8);
+      doc.text(d.departement || '-', depColX[0], y + 4);
+      doc.text(`${d.nb_ens}`, depColX[1], y + 4);
+      doc.text(`${eqTd.toFixed(1)}h`, depColX[2], y + 4);
+      doc.text(`${pct.toFixed(1)}%`, depColX[3], y + 4);
+      doc.roundedRect(depColX[4], y + 3, Math.max(pct * 2, 2), 10, 3).fill('#6d28d9');
+      y += 18;
+    });
     y += 20;
 
-    deptStats.rows.forEach((d, i) => {
-      if (y > PH - 80) { doc.addPage(); y = 50; }
-      if (i % 2 === 0) doc.rect(25, y, PW - 50, 14).fill('#fafafa');
-      doc.fontSize(7).fillColor('#374151');
-      doc.text(d.departement || '-', dCols[0] + 5, y + 3);
-      doc.text(`${d.nb_enseignants}`, dCols[1] + 5, y + 3);
-      doc.text(`${parseFloat(d.total_eq_td || 0).toFixed(1)}h`, dCols[2] + 5, y + 3);
-      const pct = totalEqTD > 0 ? ((parseFloat(d.total_eq_td || 0) / totalEqTD) * 100).toFixed(1) : '0';
-      doc.text(`${pct}%`, dCols[3] + 5, y + 3);
-      // Mini barre
-      const barW = Math.min(150, (parseFloat(pct) / 100) * 150);
-      doc.roundedRect(dCols[4] + 5, y + 4, barW, 7, 2).fill('#6d28d9');
-      y += 16;
-    });
+    doc.fillColor('#6d28d9').fontSize(11).text('Detail par enseignant', 30, y);
+    y += 18;
 
-    y += 15;
-
-    // ── TABLEAU DÉTAILLÉ PAR ENSEIGNANT ──
-    doc.fontSize(10).fillColor('#374151').text('Detail par enseignant', 25, y);
-    y += 15;
-
-    const tCols = [25, 80, 155, 235, 295, 340, 385, 425, 470, 535, 610, 690];
-    const tHeaders = ['#', 'Nom', 'Prenom', 'Dept.', 'CM', 'TD', 'TP', 'Eq-TD', 'Contr.', 'Compl.', 'Taux', 'Montant'];
-
-    doc.rect(25, y, PW - 50, 18).fill('#6d28d9');
-    doc.fontSize(6.5).fillColor('#fff');
-    tHeaders.forEach((h, i) => doc.text(h, tCols[i] + 3, y + 5));
-    y += 20;
+    const colX = [25, 80, 145, 210, 265, 310, 350, 390, 430, 480, 540, 610, 690];
+    doc.rect(20, y, pgW - 40, 18).fill('#6d28d9');
+    doc.fillColor('#fff').fontSize(7);
+    ['Depart.', 'Nom', 'Prenom', 'Grade', 'Statut', 'CM', 'TD', 'TP', 'Eq-TD', 'Contr.', 'Compl.', 'Taux', 'Montant'].forEach((h, i) => doc.text(h, colX[i], y + 4));
+    y += 22;
 
     result.rows.forEach((row, i) => {
-      if (y > PH - 50) {
-        doc.addPage(); y = 50;
-        doc.rect(25, y, PW - 50, 18).fill('#6d28d9');
-        doc.fontSize(6.5).fillColor('#fff');
-        tHeaders.forEach((h, ii) => doc.text(h, tCols[ii] + 3, y + 5));
-        y += 20;
-      }
-      const eq = parseFloat(row.heures_eq_td) || 0;
-      const contr = parseFloat(row.heures_contractuelles) || 0;
-      const comp = Math.max(0, eq - contr);
-      const tx = parseFloat(row.taux_horaire) || 0;
-      const mt = comp * tx;
+      if (y > pgH - 60) { doc.addPage(); y = 50; }
+      const eqTD = parseFloat(row.heures_eq_td) || 0;
+      const contract = parseFloat(row.heures_contractuelles) || 0;
+      const compl = Math.max(0, eqTD - contract);
+      const taux = parseFloat(row.taux_horaire) || 0;
+      const montant = compl * taux;
 
-      if (i % 2 === 0) doc.rect(25, y, PW - 50, 14).fill('#fafafa');
-      if (comp > 0) doc.rect(tCols[9], y, 55, 14).fill('#fef3c7');
+      if (compl > 0 && i % 2 === 0) doc.rect(20, y, pgW - 40, 15).fill('#fffbeb');
+      else if (i % 2 === 0) doc.rect(20, y, pgW - 40, 15).fill('#fafafa');
 
-      doc.fontSize(6.5).fillColor('#374151');
-      doc.text(`${i + 1}`, tCols[0] + 3, y + 3);
-      doc.text(row.nom, tCols[1] + 3, y + 3, { width: 70, ellipsis: true });
-      doc.text(row.prenom, tCols[2] + 3, y + 3, { width: 75, ellipsis: true });
-      doc.text(row.departement, tCols[3] + 3, y + 3, { width: 55, ellipsis: true });
-      doc.text(`${row.cm || 0}`, tCols[4] + 3, y + 3, { width: 50 });
-      doc.text(`${row.td || 0}`, tCols[5] + 3, y + 3, { width: 40 });
-      doc.text(`${row.tp || 0}`, tCols[6] + 3, y + 3, { width: 35 });
-      doc.text(`${eq.toFixed(1)}`, tCols[7] + 3, y + 3, { width: 40 });
-      doc.text(`${contr}`, tCols[8] + 3, y + 3, { width: 60 });
-      doc.text(`${comp.toFixed(1)}`, tCols[9] + 3, y + 3, { width: 55 });
-      doc.text(`${tx}`, tCols[10] + 3, y + 3, { width: 70 });
-      doc.text(`${mt.toLocaleString()}`, tCols[11] + 3, y + 3, { width: 70 });
+      doc.fillColor(compl > 0 ? '#92400e' : '#374151').fontSize(7);
+      doc.text(row.departement || '-', colX[0], y + 4);
+      doc.text(row.nom, colX[1], y + 4);
+      doc.text(row.prenom, colX[2], y + 4);
+      doc.text(row.grade, colX[3], y + 4);
+      doc.text(row.statut, colX[4], y + 4);
+      doc.text(`${parseFloat(row.cm || 0).toFixed(1)}h`, colX[5], y + 4);
+      doc.text(`${parseFloat(row.td || 0).toFixed(1)}h`, colX[6], y + 4);
+      doc.text(`${parseFloat(row.tp || 0).toFixed(1)}h`, colX[7], y + 4);
+      doc.text(`${eqTD.toFixed(1)}h`, colX[8], y + 4);
+      doc.text(`${contract}h`, colX[9], y + 4);
+      doc.fillColor(compl > 0 ? '#dc2626' : '#9ca3af').text(`${compl.toFixed(1)}h`, colX[10], y + 4);
+      doc.fillColor('#374151').text(`${taux}`, colX[11], y + 4);
+      doc.fillColor(montant > 0 ? '#059669' : '#9ca3af').text(`${montant.toLocaleString('fr-FR')}`, colX[12], y + 4);
       y += 16;
     });
 
-    // Ligne total
-    doc.rect(25, y, PW - 50, 18).fill('#6d28d9');
-    doc.fontSize(7).fillColor('#fff');
-    doc.text('TOTAL', tCols[3] + 3, y + 5);
-    doc.text(`${totalCM.toFixed(1)}h`, tCols[4] + 3, y + 5);
-    doc.text(`${totalTD.toFixed(1)}h`, tCols[5] + 3, y + 5);
-    doc.text(`${totalTP.toFixed(1)}h`, tCols[6] + 3, y + 5);
-    doc.text(`${totalEqTD.toFixed(1)}h`, tCols[7] + 3, y + 5);
-    doc.text(`${totalCompl.toFixed(1)}h`, tCols[9] + 3, y + 5);
-    doc.text(`${totalMontant.toLocaleString()} FCFA`, tCols[11] + 3, y + 5);
+    y += 2;
+    doc.rect(20, y, pgW - 40, 20).fill('#6d28d9');
+    doc.fillColor('#fff').fontSize(8);
+    doc.text('TOTAL', colX[1], y + 5);
+    doc.text(`${result.rows.reduce((s, r) => s + parseFloat(r.cm || 0), 0).toFixed(1)}h`, colX[5], y + 5);
+    doc.text(`${result.rows.reduce((s, r) => s + parseFloat(r.td || 0), 0).toFixed(1)}h`, colX[6], y + 5);
+    doc.text(`${result.rows.reduce((s, r) => s + parseFloat(r.tp || 0), 0).toFixed(1)}h`, colX[7], y + 5);
+    doc.text(`${totalEqTD.toFixed(1)}h`, colX[8], y + 5);
+    doc.text(`${totalCompl.toFixed(1)}h`, colX[10], y + 5);
+    doc.text(`${totalMontant.toLocaleString('fr-FR')} FCFA`, colX[12], y + 5);
 
-    // ── PIED DE PAGE ──
     const totalPages = doc.bufferedPageRange().count;
     for (let i = 0; i < totalPages; i++) {
       doc.switchToPage(i);
       doc.fontSize(7).fillColor('#9ca3af').text(
-        `Rapport annuel GHES - ${new Date().toLocaleDateString('fr-FR')} - Page ${i + 1}/${totalPages}`,
-        25, PH - 20, { align: 'center', width: PW - 50 }
+        `GestHeures - Rapport annuel ${anneeLabel} | Page ${i + 1}/${totalPages}`,
+        30, pgH - 25, { align: 'center', width: pgW - 60 }
       );
     }
 
     doc.end();
   } catch (err) {
     console.error('Erreur rapport annuel:', err);
-    res.status(500).json({ message: 'Erreur rapport annuel' });
+    res.status(500).json({ message: 'Erreur export' });
   }
 };
