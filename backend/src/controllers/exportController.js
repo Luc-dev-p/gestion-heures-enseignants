@@ -339,3 +339,104 @@ exports.exportPdfComptabilite = async (req, res) => {
     res.status(500).json({ message: 'Erreur export' });
   }
 };
+// ✅ NOUVEAU : Export PDF — Journal des actions
+exports.exportPdfLogs = async (req, res) => {
+  try {
+    const userRole = req.user?.role;
+
+    let sql;
+    if (userRole === 'admin') {
+      sql = `
+        SELECT al.*, u.nom as user_nom, u.role as user_role
+        FROM action_logs al
+        LEFT JOIN users u ON al.user_id = u.id
+        ORDER BY al.created_at DESC
+      `;
+    } else {
+      sql = `
+        SELECT al.*, u.nom as user_nom, u.role as user_role
+        FROM action_logs al
+        LEFT JOIN users u ON al.user_id = u.id
+        WHERE u.role = 'rh'
+        ORDER BY al.created_at DESC
+      `;
+    }
+
+    const result = await query(sql);
+
+    const doc = new PDFDocument({ size: 'A4' });
+    const roleLabel = userRole === 'admin' ? 'ADMINISTRATEUR' : 'RH';
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=journal_${roleLabel.toLowerCase()}_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.pipe(res);
+
+    // En-tête
+    doc.rect(0, 0, doc.page.width, 80).fill('#6d28d9');
+    doc.fontSize(18).fillColor('#fff').text(`JOURNAL DES ACTIONS - ${roleLabel}`, 0, 25, { align: 'center' });
+    doc.fontSize(9).fillColor('#e0d4fc').text(`Genere le ${new Date().toLocaleDateString('fr-FR')} a ${new Date().toLocaleTimeString('fr-FR')}`, 0, 50, { align: 'center' });
+    doc.fontSize(8).fillColor('#e0d4fc').text(`${result.rows.length} action(s) enregistree(s)`, 0, 63, { align: 'center' });
+
+    // Tableau
+    let y = 100;
+    const colX = [40, 120, 200, 270, 340, 420];
+
+    // En-têtes colonnes
+    doc.rect(35, y, doc.page.width - 70, 20).fill('#f3f0ff');
+    doc.fillColor('#000').fontSize(8);
+    const headers = ['Date', 'Utilisateur', 'Action', 'Role', 'Table', 'Details'];
+    headers.forEach((h, i) => doc.text(h, colX[i], y + 5));
+    y += 25;
+
+    // Lignes
+    result.rows.forEach((l, i) => {
+      if (y > 720) {
+        doc.addPage();
+        y = 50;
+        doc.rect(35, y, doc.page.width - 70, 20).fill('#f3f0ff');
+        doc.fillColor('#000').fontSize(8);
+        headers.forEach((h, j) => doc.text(h, colX[j], y + 5));
+        y += 25;
+      }
+
+      if (i % 2 === 0) doc.rect(35, y, doc.page.width - 70, 18).fill('#fafafa');
+
+      // Couleur par action
+      const actionColors = {
+        CREATE: '#059669',
+        UPDATE: '#2563eb',
+        DELETE: '#dc2626',
+        VALIDATE: '#059669',
+        REJECT: '#dc2626',
+      };
+      doc.fillColor(actionColors[l.action] || '#374151').fontSize(8);
+      doc.text(new Date(l.created_at).toLocaleString('fr-FR'), colX[0], y + 4, { width: 75 });
+      doc.fillColor('#000').fontSize(8);
+      doc.text(l.user_nom || 'Systeme', colX[1], y + 4);
+      doc.text(l.action, colX[2], y + 4);
+      doc.text(l.user_role || '-', colX[3], y + 4);
+      doc.text(l.table_concernee || '-', colX[4], y + 4);
+      doc.text((l.details || '-').substring(0, 40), colX[5], y + 4, { width: 140 });
+      y += 20;
+    });
+
+    if (result.rows.length === 0) {
+      doc.fillColor('#999').fontSize(11).text('Aucune action enregistree', 0, 300, { align: 'center' });
+    }
+
+    // Pied de page
+    const totalPages = doc.bufferedPageRange().count;
+    for (let i = 0; i < totalPages; i++) {
+      doc.switchToPage(i);
+      doc.fontSize(7).fillColor('#999').text(
+        `GHES - Journal des actions - Genere le ${new Date().toLocaleDateString('fr-FR')} - Page ${i + 1}/${totalPages}`,
+        40, doc.page.height - 25, { align: 'center', width: doc.page.width - 80 }
+      );
+    }
+
+    doc.end();
+  } catch (err) {
+    console.error('Erreur PDF logs:', err);
+    res.status(500).json({ message: 'Erreur export' });
+  }
+};

@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
-import { Users, BookOpen, Clock, AlertTriangle, TrendingUp, Shield } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Users, BookOpen, Clock, AlertTriangle, TrendingUp, Shield, Download, Trash2, RefreshCw } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [stats, setStats] = useState(null);
   const [depassements, setDepassements] = useState([]);
   const [departements, setDepartements] = useState([]);
@@ -10,6 +13,8 @@ export default function Dashboard() {
   const [mois, setMois] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [exportingLogs, setExportingLogs] = useState(false);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -37,6 +42,40 @@ export default function Dashboard() {
     fetchAll();
   }, []);
 
+  const handleResetLogs = async () => {
+    try {
+      await api.delete('/dashboard/logs');
+      toast.success('Journal reinitialise');
+      setConfirmReset(false);
+      // Recharger les logs
+      const res = await api.get('/dashboard/logs');
+      setLogs(res.data);
+    } catch (err) {
+      toast.error('Erreur lors de la reinitialisation');
+    }
+  };
+
+  const handleExportLogsPdf = async () => {
+    try {
+      setExportingLogs(true);
+      const res = await api.get('/export/logs/pdf', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      const role = user?.role === 'admin' ? 'admin' : 'rh';
+      link.setAttribute('download', `journal_${role}_${new Date().toISOString().split('T')[0]}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Export PDF reussi');
+    } catch {
+      toast.error('Erreur export PDF');
+    } finally {
+      setExportingLogs(false);
+    }
+  };
+
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-violet-600"></div></div>;
 
   const cards = [
@@ -62,7 +101,7 @@ export default function Dashboard() {
   const filValeurs = filieres.map(f => parseFloat(f.total_heures) || 0);
   const maxFil = Math.max(...filValeurs, 1);
 
-  const ACTION_COLORS = { CREATE: 'bg-emerald-100 text-emerald-700', UPDATE: 'bg-blue-100 text-blue-700', DELETE: 'bg-red-100 text-red-700' };
+  const ACTION_COLORS = { CREATE: 'bg-emerald-100 text-emerald-700', UPDATE: 'bg-blue-100 text-blue-700', DELETE: 'bg-red-100 text-red-700', VALIDATE: 'bg-green-100 text-green-700', REJECT: 'bg-orange-100 text-orange-700' };
 
   return (
     <div>
@@ -182,7 +221,30 @@ export default function Dashboard() {
 
       {/* Journal des actions */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2"><Shield className="w-5 h-5 text-violet-500" /> Journal des actions recentes</h3>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-violet-500" /> Journal des actions recentes
+            <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-xs font-medium">
+              {user?.role === 'admin' ? 'Tous les roles' : 'Role RH uniquement'}
+            </span>
+          </h3>
+          <div className="flex items-center gap-2">
+            {/* Export PDF */}
+            <button onClick={handleExportLogsPdf} disabled={exportingLogs}
+              className="flex items-center gap-2 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-all">
+              <Download className="w-4 h-4" />
+              {exportingLogs ? 'Export...' : 'Exporter PDF'}
+            </button>
+            {/* Réinitialiser — admin uniquement */}
+            {user?.role === 'admin' && (
+              <button onClick={() => setConfirmReset(true)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-all">
+                <Trash2 className="w-4 h-4" />
+                Reinitialiser
+              </button>
+            )}
+          </div>
+        </div>
         {logs.length === 0 ? (
           <p className="text-gray-400 text-sm text-center py-8">Aucune action enregistree</p>
         ) : (
@@ -192,6 +254,7 @@ export default function Dashboard() {
                 <tr className="border-b border-gray-100">
                   <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Date</th>
                   <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Utilisateur</th>
+                  <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Role</th>
                   <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Action</th>
                   <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Table</th>
                   <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Details</th>
@@ -201,7 +264,15 @@ export default function Dashboard() {
                 {logs.map(l => (
                   <tr key={l.id} className="border-b border-gray-50">
                     <td className="px-3 py-2 text-gray-500 text-xs">{new Date(l.created_at).toLocaleString('fr-FR')}</td>
-                    <td className="px-3 py-2 text-gray-700">{l.user_nom || 'Système'}</td>
+                    <td className="px-3 py-2 text-gray-700 font-medium">{l.user_nom || 'Systeme'}</td>
+                    <td className="px-3 py-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        l.user_role === 'admin' ? 'bg-violet-100 text-violet-700' :
+                        l.user_role === 'rh' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                      }`}>
+                        {l.user_role || '-'}
+                      </span>
+                    </td>
                     <td className="px-3 py-2">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ACTION_COLORS[l.action] || 'bg-gray-100 text-gray-700'}`}>
                         {l.action}
@@ -216,6 +287,23 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Modal confirmation réinitialisation */}
+      {confirmReset && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 text-center">
+            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">Reinitialiser le journal ?</h3>
+            <p className="text-sm text-gray-500 mb-6">Toutes les actions enregistrees seront supprimees. Cette action est irreversible.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmReset(false)} className="flex-1 py-2.5 border border-gray-200 text-gray-600 font-medium rounded-xl hover:bg-gray-50">Annuler</button>
+              <button onClick={handleResetLogs} className="flex-1 py-2.5 bg-red-600 text-white font-medium rounded-xl hover:bg-red-700">Reinitialiser</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

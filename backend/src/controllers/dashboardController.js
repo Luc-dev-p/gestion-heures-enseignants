@@ -88,16 +88,51 @@ exports.getDepassements = async (req, res) => {
   }
 };
 
+// ✅ CORRECTION : Logs filtrés par rôle
+// Admin voit tous les logs, RH voit uniquement les logs des utilisateurs RH
 exports.getRecentLogs = async (req, res) => {
   try {
-    const result = await query(
-      `SELECT al.*, u.nom as user_nom
-       FROM action_logs al
-       LEFT JOIN users u ON al.user_id = u.id
-       ORDER BY al.created_at DESC
-       LIMIT 20`
-    );
+    let sql;
+    const userRole = req.user?.role;
+
+    if (userRole === 'admin') {
+      // Admin : voir tous les logs
+      sql = `
+        SELECT al.*, u.nom as user_nom, u.email as user_email, u.role as user_role
+        FROM action_logs al
+        LEFT JOIN users u ON al.user_id = u.id
+        ORDER BY al.created_at DESC
+        LIMIT 50
+      `;
+    } else {
+      // RH : voir uniquement les logs des utilisateurs RH
+      sql = `
+        SELECT al.*, u.nom as user_nom, u.email as user_email, u.role as user_role
+        FROM action_logs al
+        LEFT JOIN users u ON al.user_id = u.id
+        WHERE u.role = 'rh'
+        ORDER BY al.created_at DESC
+        LIMIT 50
+      `;
+    }
+
+    const result = await query(sql);
     res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+};
+
+// ✅ NOUVEAU : Réinitialiser les logs (admin uniquement)
+exports.resetLogs = async (req, res) => {
+  try {
+    await query('DELETE FROM action_logs');
+    await query(
+      `INSERT INTO action_logs (user_id, action, table_concernee, enregistrement_id, details)
+       VALUES ($1, 'DELETE', 'action_logs', NULL, 'Journal reinitialise')`,
+      [req.user?.id]
+    );
+    res.json({ message: 'Journal reinitialise' });
   } catch (err) {
     res.status(500).json({ message: 'Erreur serveur' });
   }

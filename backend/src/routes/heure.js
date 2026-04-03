@@ -1,14 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const { getAll, getByEnseignant, getResume, create, delete: remove, getAnnees } = require('../controllers/heureController');
 const { protect, authorize } = require('../middleware/auth');
+const heureController = require('../controllers/heureController');
 
-router.use(protect);
-router.get('/annees', getAnnees);
-router.get('/resume/:id', getResume);
-router.get('/enseignant/:id', getByEnseignant);
-router.get('/', authorize('admin', 'rh'), getAll);
-router.post('/', authorize('admin', 'rh'), create);
-router.delete('/:id', authorize('admin', 'rh'), remove);
+// Routes publiques (authentifiées)
+router.get('/', protect, heureController.getAll);
+router.get('/enseignant/:id', protect, heureController.getByEnseignant);
+router.get('/resume/:id', protect, heureController.getResume);
+router.get('/annees', protect, heureController.getAnnees);
+
+// Routes RH / Admin uniquement
+router.post('/', protect, authorize('admin', 'rh'), heureController.create);
+router.put('/valider/:id', protect, authorize('admin', 'rh'), heureController.valider);
+router.put('/rejeter/:id', protect, authorize('admin', 'rh'), heureController.rejeter);
+router.delete('/:id', protect, authorize('admin', 'rh'), heureController.delete);
 
 module.exports = router;
