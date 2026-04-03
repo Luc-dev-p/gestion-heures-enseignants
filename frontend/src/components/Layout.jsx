@@ -55,8 +55,8 @@ export default function Layout() {
           <button className="lg:hidden ml-auto text-white" onClick={() => setSidebarOpen(false)}><X className="w-5 h-5" /></button>
         </div>
         <nav className="p-4 space-y-1">
-          {/* Menu enseignant */}
-          {enseignantLinks.map(({ to, icon: Icon, label }) => (
+          {/* ✅ CORRECTION : Menu enseignant — affiché UNIQUEMENT pour le rôle enseignant */}
+          {user?.role === 'enseignant' && enseignantLinks.map(({ to, icon: Icon, label }) => (
             <NavLink key={to} to={to} end={to === '/mon-espace'} onClick={() => setSidebarOpen(false)}
               className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${isActive ? 'bg-white/20 text-white shadow-lg' : 'text-violet-200 hover:bg-white/10 hover:text-white'}`}>
               <Icon className="w-5 h-5" />{label}

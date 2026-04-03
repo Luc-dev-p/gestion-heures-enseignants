@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { Plus, Edit, Trash2, Search, Users, UserCheck, UserX, X, FileSpreadsheet, FileText, Mail, Lock } from 'lucide-react';
 import { exportApi, downloadBlob } from '../api/exportApi';
 
-const GRADES = ['Assistant', 'Maitre-Assistant', 'Professeur', 'Autre'];
+const GRADES = ['Assistant', 'Maître-Assistant', 'Professeur', 'Autres'];
 const STATUTS = ['Permanent', 'Vacataire'];
 const emptyForm = {
   nom: '', prenom: '', grade: 'Assistant', statut: 'Permanent',

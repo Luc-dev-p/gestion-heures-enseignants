@@ -18,13 +18,21 @@ function ProtectedRoute({ children, roles }) {
   return children;
 }
 
+function RoleBasedIndex() {
+  const { user } = useAuth();
+  if (user?.role === 'enseignant') return <Navigate to="/mon-espace" replace />;
+  return <Navigate to="/dashboard" replace />;
+}
+
 function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route index element={<Navigate to="/mon-espace" replace />} />
-        <Route path="mon-espace" element={<MonEspace />} />
+        {/* ✅ CORRECTION 1 : Redirection par rôle au lieu de tout le monde vers /mon-espace */}
+        <Route index element={<RoleBasedIndex />} />
+        {/* ✅ CORRECTION 2 : Protéger /mon-espace pour le rôle enseignant uniquement */}
+        <Route path="mon-espace" element={<ProtectedRoute roles={['enseignant']}><MonEspace /></ProtectedRoute>} />
         <Route path="dashboard" element={<ProtectedRoute roles={['admin', 'rh']}><Dashboard /></ProtectedRoute>} />
         <Route path="enseignants" element={<ProtectedRoute roles={['admin', 'rh']}><Enseignants /></ProtectedRoute>} />
         <Route path="matieres" element={<ProtectedRoute roles={['admin', 'rh']}><Matieres /></ProtectedRoute>} />
