@@ -1,12 +1,21 @@
 const { query } = require('../config/database');
 
-// Récupérer tous les enseignants avec données de paiement
+// Récupérer tous les enseignants avec données de paiement (filtrable par annee_id)
 exports.getAllPaiements = async (req, res) => {
   try {
+    const { annee_id } = req.query;
     const eqCM = await query("SELECT valeur FROM parametres WHERE cle = 'equivalence_cm_td'");
     const eqTP = await query("SELECT valeur FROM parametres WHERE cle = 'equivalence_tp_td'");
     const eqCmTd = parseFloat(eqCM.rows[0]?.valeur || 1.5);
     const eqTpTd = parseFloat(eqTP.rows[0]?.valeur || 1);
+
+    // Construire la requête avec filtre année sur les heures
+    let heuresJoin = 'LEFT JOIN heures h ON e.id = h.enseignant_id';
+    const params = [];
+    if (annee_id) {
+      heuresJoin += ' AND h.annee_id = $1';
+      params.push(annee_id);
+    }
 
     const result = await query(
       `SELECT e.id, e.nom, e.prenom, e.grade, e.statut, e.departement, e.taux_horaire, e.heures_contractuelles,
@@ -17,9 +26,10 @@ exports.getAllPaiements = async (req, res) => {
                        WHEN h.type_heure = 'TD' THEN h.duree
                        WHEN h.type_heure = 'TP' THEN h.duree * ${eqTpTd} ELSE 0 END), 0) as heures_eq_td
        FROM enseignants e
-       LEFT JOIN heures h ON e.id = h.enseignant_id
+       ${heuresJoin}
        GROUP BY e.id
-       ORDER BY e.nom, e.prenom`
+       ORDER BY e.nom, e.prenom`,
+      params
     );
 
     // Derniers paiements par enseignant
@@ -67,13 +77,40 @@ exports.getAllPaiements = async (req, res) => {
   }
 };
 
-// Stats paiements
+// Stats paiements (filtrable par annee_id via les heures)
 exports.getPaiementStats = async (req, res) => {
   try {
+    const { annee_id } = req.query;
     const total = await query('SELECT COUNT(*) FROM enseignants');
     const payes = await query('SELECT COUNT(DISTINCT enseignant_id) FROM paiements');
     const totalPaiements = await query('SELECT COALESCE(SUM(montant), 0) as total_montant, COUNT(*) as nb FROM paiements');
     const periodes = await query('SELECT DISTINCT periode FROM paiements ORDER BY periode DESC LIMIT 10');
+
+    // Si annee_id fourni, calculer les stats des heures complémentaires pour cette année
+    let heuresCompl = null;
+    if (annee_id) {
+      const eqCM = await query("SELECT valeur FROM parametres WHERE cle = 'equivalence_cm_td'");
+      const eqTP = await query("SELECT valeur FROM parametres WHERE cle = 'equivalence_tp_td'");
+      const eqCmTd = parseFloat(eqCM.rows[0]?.valeur || 1.5);
+      const eqTpTd = parseFloat(eqTP.rows[0]?.valeur || 1);
+
+      const result = await query(
+        `SELECT SUM(CASE WHEN h_eq.heures_eq_td > e.heures_contractuelles 
+                          THEN (h_eq.heures_eq_td - e.heures_contractuelles) ELSE 0 END) as total_compl,
+                SUM(CASE WHEN h_eq.heures_eq_td > e.heures_contractuelles 
+                          THEN (h_eq.heures_eq_td - e.heures_contractuelles) * e.taux_horaire ELSE 0 END) as total_montant_compl
+         FROM enseignants e
+         LEFT JOIN (
+           SELECT h.enseignant_id,
+                  SUM(CASE WHEN h.type_heure = 'CM' THEN h.duree * ${eqCmTd}
+                           WHEN h.type_heure = 'TD' THEN h.duree
+                           WHEN h.type_heure = 'TP' THEN h.duree * ${eqTpTd} ELSE 0 END) as heures_eq_td
+           FROM heures h WHERE h.annee_id = $1 GROUP BY h.enseignant_id
+         ) h_eq ON e.id = h_eq.enseignant_id`,
+        [annee_id]
+      );
+      heuresCompl = result.rows[0];
+    }
 
     res.json({
       total_enseignants: parseInt(total.rows[0].count),
@@ -81,6 +118,10 @@ exports.getPaiementStats = async (req, res) => {
       total_montant_paye: parseFloat(totalPaiements.rows[0].total_montant) || 0,
       nb_paiements: parseInt(totalPaiements.rows[0].nb),
       periodes: periodes.rows.map(p => p.periode),
+      ...(heuresCompl ? {
+        total_heures_complementaires: parseFloat(heuresCompl.total_compl) || 0,
+        total_montant_complementaires: parseFloat(heuresCompl.total_montant_compl) || 0,
+      } : {}),
     });
   } catch (err) {
     console.error('Erreur stats paiements:', err);

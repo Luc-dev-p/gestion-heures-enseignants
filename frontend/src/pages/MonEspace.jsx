@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { exportApi, downloadBlob } from '../api/exportApi';
+import { useAnnee } from '../context/AnneeContext';
 import { Clock, Calculator, FileSpreadsheet, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function MonEspace() {
+  const { anneeActive, annees } = useAnnee();
   const [profile, setProfile] = useState(null);
   const [monEnseignant, setMonEnseignant] = useState(null);
   const [resume, setResume] = useState(null);
@@ -12,33 +14,38 @@ export default function MonEspace() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
-    const fetchMyData = async () => {
-      try {
-        // 1. Profil utilisateur connecté
-        const resProfile = await api.get('/auth/profile');
-        setProfile(resProfile.data);
+  const fetchMyData = async () => {
+    try {
+      // 1. Profil utilisateur connecté
+      const resProfile = await api.get('/auth/profile');
+      setProfile(resProfile.data);
 
-        // 2. Trouver l'enseignant lié via user_id
-        const resEns = await api.get(`/enseignants/me/${resProfile.data.id}`);
-        setMonEnseignant(resEns.data);
+      // 2. Trouver l'enseignant lié via user_id
+      const resEns = await api.get(`/enseignants/me/${resProfile.data.id}`);
+      setMonEnseignant(resEns.data);
 
-        // 3. Résumé des heures
-        const resResume = await api.get(`/heures/resume/${resEns.data.id}`);
+      if (resEns.data) {
+        const params = anneeActive ? { annee_id: anneeActive } : {};
+
+        // 3. Résumé des heures (filtré par année)
+        const resResume = await api.get(`/heures/resume/${resEns.data.id}`, { params });
         setResume(resResume.data);
 
-        // 4. Mes heures
-        const resHeures = await api.get(`/heures/enseignant/${resEns.data.id}`);
+        // 4. Mes heures (filtrées par année)
+        const resHeures = await api.get(`/heures/enseignant/${resEns.data.id}`, { params });
         setHeures(resHeures.data);
-      } catch (err) {
-        console.error(err);
-        toast.error('Aucun profil enseignant trouve. Contactez l\'administrateur.');
-      } finally {
-        setLoading(false);
       }
-    };
-    fetchMyData();
-  }, []);
+    } catch (err) {
+      console.error(err);
+      toast.error('Aucun profil enseignant trouve. Contactez l\'administrateur.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (anneeActive !== null) fetchMyData();
+  }, [anneeActive]);
 
   const handleExport = async (type) => {
     if (!monEnseignant) return;
@@ -60,12 +67,15 @@ export default function MonEspace() {
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-violet-600"></div></div>;
 
+  const anneeLabel = annees.find(a => a.id === anneeActive)?.libelle || '';
+
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Mon Espace</h2>
           <p className="text-gray-500 text-sm">Bienvenue, {profile?.nom} ({monEnseignant?.grade} - {monEnseignant?.departement})</p>
+          {anneeLabel && <p className="text-violet-500 text-sm font-medium">Annee : {anneeLabel}</p>}
         </div>
         <div className="flex gap-2">
           <button onClick={() => handleExport('excel')} disabled={exporting || !monEnseignant}
@@ -117,7 +127,7 @@ export default function MonEspace() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 mb-6 text-center text-gray-400">
-          Aucune heure enregistree
+          Aucune heure enregistree pour cette annee
         </div>
       )}
 
@@ -126,7 +136,7 @@ export default function MonEspace() {
           <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><Clock className="w-5 h-5 text-violet-500" /> Mes heures</h3>
         </div>
         {heures.length === 0 ? (
-          <p className="text-center text-gray-400 py-8">Aucune heure enregistree</p>
+          <p className="text-center text-gray-400 py-8">Aucune heure enregistree pour cette annee</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

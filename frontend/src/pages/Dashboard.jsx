@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { useAnnee } from '../context/AnneeContext';
 import { Users, BookOpen, Clock, AlertTriangle, TrendingUp, Shield, Download, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useDataSync } from '../hooks/useDataSync';
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { anneeActive, annees } = useAnnee();
   const [stats, setStats] = useState(null);
   const [depassements, setDepassements] = useState([]);
   const [departements, setDepartements] = useState([]);
@@ -19,12 +21,13 @@ export default function Dashboard() {
 
   const fetchAll = async () => {
     try {
+      const params = anneeActive ? { annee_id: anneeActive } : {};
       const [s, d, f, m, dep, l] = await Promise.all([
-        api.get('/dashboard/stats'),
-        api.get('/dashboard/departements'),
-        api.get('/dashboard/filieres'),
-        api.get('/dashboard/mois'),
-        api.get('/dashboard/depassements'),
+        api.get('/dashboard/stats', { params }),
+        api.get('/dashboard/departements', { params }),
+        api.get('/dashboard/filieres', { params }),
+        api.get('/dashboard/mois', { params }),
+        api.get('/dashboard/depassements', { params }),
         api.get('/dashboard/logs'),
       ]);
       setStats(s.data);
@@ -40,10 +43,15 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => {
+    if (anneeActive !== null) fetchAll();
+  }, [anneeActive]);
 
   // Rafraichir le dashboard quand enseignants, heures, utilisateurs ou matieres changent
   useDataSync(['enseignants', 'utilisateurs', 'heures', 'matieres'], fetchAll);
+
+  // Libellé de l'année active
+  const anneeLabel = annees.find(a => a.id === anneeActive)?.libelle || '';
 
   const handleResetLogs = async () => {
     try {
@@ -60,7 +68,6 @@ export default function Dashboard() {
   const handleExportLogsPdf = async () => {
     try {
       setExportingLogs(true);
-      // ✅ CORRECTION : chemin corrigé
       const res = await api.get('/exports/pdf/logs', { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
       const link = document.createElement('a');
@@ -108,7 +115,12 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Tableau de bord</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">Tableau de bord</h2>
+          {anneeLabel && <p className="text-violet-500 text-sm font-medium">Annee : {anneeLabel}</p>}
+        </div>
+      </div>
 
       {/* Cartes stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

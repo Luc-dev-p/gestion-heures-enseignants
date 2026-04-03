@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
+import api from '../api/axios';
 import { paiementApi } from '../api/paiementApi';
 import { exportApi, downloadBlob } from '../api/exportApi';
+import { useAnnee } from '../context/AnneeContext';
 import toast from 'react-hot-toast';
 import { Search, Wallet, CreditCard, CheckCircle, AlertTriangle, X, FileText, Download, Users, Clock, TrendingUp, History } from 'lucide-react';
 
 export default function Paiements() {
+  const { anneeActive, annees } = useAnnee();
   const [paiements, setPaiements] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -22,9 +25,10 @@ export default function Paiements() {
 
   const fetchData = async () => {
     try {
+      const params = anneeActive ? { annee_id: anneeActive } : {};
       const [resP, resS] = await Promise.all([
-        paiementApi.getAll(),
-        paiementApi.getStats(),
+        api.get('/paiements', { params }),
+        api.get('/paiements/stats', { params }),
       ]);
       setPaiements(resP.data);
       setStats(resS.data);
@@ -35,7 +39,9 @@ export default function Paiements() {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    if (anneeActive !== null) fetchData();
+  }, [anneeActive]);
 
   const filtered = paiements.filter((p) => {
     const term = search.toLowerCase();
@@ -119,6 +125,7 @@ export default function Paiements() {
   const totalMontantGlobal = paiements.reduce((s, p) => s + p.montant, 0);
   const totalComplementaires = paiements.reduce((s, p) => s + p.heures_complementaires, 0);
   const nbDepassement = paiements.filter(p => p.heures_complementaires > 0).length;
+  const anneeLabel = annees.find(a => a.id === anneeActive)?.libelle || '';
 
   return (
     <div>
@@ -126,6 +133,7 @@ export default function Paiements() {
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Gestion des Paiements</h2>
           <p className="text-gray-500 text-sm">Suivi et paiement des heures complementaires</p>
+          {anneeLabel && <p className="text-violet-500 text-sm font-medium">Annee : {anneeLabel}</p>}
         </div>
         <div className="flex gap-2">
           <button onClick={handleExportRapport} disabled={exporting}
