@@ -8,6 +8,7 @@ import Heures from './pages/Heures.jsx';
 import Parametres from './pages/Parametres.jsx';
 import GestionUtilisateurs from './pages/GestionUtilisateurs.jsx';
 import MonEspace from './pages/MonEspace.jsx';
+import Paiements from './pages/Paiements.jsx';
 import Layout from './components/Layout.jsx';
 
 function ProtectedRoute({ children, roles }) {
@@ -18,9 +19,11 @@ function ProtectedRoute({ children, roles }) {
   return children;
 }
 
-function RoleBasedIndex() {
+/* Redirection intelligente selon le rôle */
+function HomeRedirect() {
   const { user } = useAuth();
-  if (user?.role === 'enseignant') return <Navigate to="/mon-espace" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role === 'enseignant') return <Navigate to="/mon-espace" replace />;
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -29,14 +32,13 @@ function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        {/* ✅ CORRECTION 1 : Redirection par rôle au lieu de tout le monde vers /mon-espace */}
-        <Route index element={<RoleBasedIndex />} />
-        {/* ✅ CORRECTION 2 : Protéger /mon-espace pour le rôle enseignant uniquement */}
+        <Route index element={<HomeRedirect />} />
         <Route path="mon-espace" element={<ProtectedRoute roles={['enseignant']}><MonEspace /></ProtectedRoute>} />
         <Route path="dashboard" element={<ProtectedRoute roles={['admin', 'rh']}><Dashboard /></ProtectedRoute>} />
         <Route path="enseignants" element={<ProtectedRoute roles={['admin', 'rh']}><Enseignants /></ProtectedRoute>} />
         <Route path="matieres" element={<ProtectedRoute roles={['admin', 'rh']}><Matieres /></ProtectedRoute>} />
         <Route path="heures" element={<ProtectedRoute roles={['admin', 'rh']}><Heures /></ProtectedRoute>} />
+        <Route path="paiements" element={<ProtectedRoute roles={['admin', 'rh']}><Paiements /></ProtectedRoute>} />
         <Route path="parametres" element={<ProtectedRoute roles={['admin']}><Parametres /></ProtectedRoute>} />
         <Route path="utilisateurs" element={<ProtectedRoute roles={['admin']}><GestionUtilisateurs /></ProtectedRoute>} />
       </Route>

@@ -6,6 +6,8 @@ export const exportApi = {
   pdfEnseignant: (id) => api.get(`/exports/pdf/enseignant/${id}`, { responseType: 'blob' }),
   excelComptabilite: () => api.get('/exports/excel/comptabilite', { responseType: 'blob' }),
   pdfComptabilite: () => api.get('/exports/pdf/comptabilite', { responseType: 'blob' }),
+  bulletinIndividuel: (id) => api.get(`/exports/pdf/bulletin/${id}`, { responseType: 'blob' }),
+  rapportAnnuel: () => api.get('/exports/pdf/rapport-annuel', { responseType: 'blob' }),
 };
 
 export function downloadBlob(blob, filename) {

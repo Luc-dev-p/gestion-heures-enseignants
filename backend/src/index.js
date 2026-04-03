@@ -11,6 +11,7 @@ const heureRoutes = require('./routes/heure');
 const dashboardRoutes = require('./routes/dashboard');
 const exportRoutes = require('./routes/export');
 const parametreRoutes = require('./routes/parametre');
+const paiementRoutes = require('./routes/paiement');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -28,6 +29,8 @@ app.use('/api/matieres', matiereRoutes);
 app.use('/api/heures', heureRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/exports', exportRoutes);
+app.use('/api/parametres', parametreRoutes);
+app.use('/api/paiements', paiementRoutes);
 
 // Test
 app.get('/api/health', (req, res) => {
@@ -44,4 +47,3 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`\n🚀 Serveur sur http://localhost:${PORT}\n`);
 });
-app.use('/api/parametres', parametreRoutes);
