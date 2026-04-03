@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
+import { AnneeProvider } from './context/AnneeContext';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Enseignants from './pages/Enseignants.jsx';
@@ -31,7 +32,13 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+      <Route path="/" element={
+        <ProtectedRoute>
+          <AnneeProvider>
+            <Layout />
+          </AnneeProvider>
+        </ProtectedRoute>
+      }>
         <Route index element={<HomeRedirect />} />
         <Route path="mon-espace" element={<ProtectedRoute roles={['enseignant']}><MonEspace /></ProtectedRoute>} />
         <Route path="dashboard" element={<ProtectedRoute roles={['admin', 'rh']}><Dashboard /></ProtectedRoute>} />

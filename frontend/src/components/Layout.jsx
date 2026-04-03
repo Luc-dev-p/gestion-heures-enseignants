@@ -7,9 +7,12 @@ import {
 import { useState } from 'react';
 import { exportApi, downloadBlob } from '../api/exportApi';
 import toast from 'react-hot-toast';
+import { useAnnee } from '../context/AnneeContext';
+import { CalendarDays } from 'lucide-react';
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  const { annees, anneeActive, setAnneeActive, loading: loadingAnnees } = useAnnee();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -72,6 +75,29 @@ export default function Layout() {
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* ===== SÉLECTEUR D'ANNÉE ACADÉMIQUE ===== */}
+        {!loadingAnnees && annees.length > 0 && (
+          <div className="px-4 py-3 border-b border-violet-700 shrink-0">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-violet-300 shrink-0" />
+              <select
+                value={anneeActive || ''}
+                onChange={(e) => setAnneeActive(Number(e.target.value))}
+                className="w-full bg-white/10 border border-violet-500/30 text-white text-sm rounded-lg px-3 py-1.5
+                           focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent
+                           cursor-pointer hover:bg-white/15 transition-colors appearance-none"
+              >
+                {annees.map((a) => (
+                  <option key={a.id} value={a.id} className="text-gray-900 bg-white">
+                    {a.libelle} {a.is_active ? '●' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-[10px] text-violet-400 mt-1 pl-6">Année académique active</p>
+          </div>
+        )}
 
         {/* Navigation scrollable */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1 sidebar-scroll">

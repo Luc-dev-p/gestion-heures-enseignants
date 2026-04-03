@@ -2,19 +2,21 @@ import { useState, useEffect } from 'react';
 import { heureApi } from '../api/heureApi';
 import { enseignantApi } from '../api/enseignantApi';
 import { matiereApi } from '../api/matiereApi';
+import api from '../api/axios';
 import toast from 'react-hot-toast';
-import { Plus, Trash2, Clock, Calculator, X, AlertTriangle, CheckCircle, XCircle, Filter } from 'lucide-react';
+import { Plus, Trash2, Clock, Calculator, X, AlertTriangle, CheckCircle, XCircle, Filter, Calendar } from 'lucide-react';
 import { useDataSync } from '../hooks/useDataSync';
 import { emitDataChange } from '../utils/dataSync';
+import { useAnnee } from '../context/AnneeContext';
 
 const TYPES = ['CM', 'TD', 'TP'];
 const emptyForm = { enseignant_id: '', matiere_id: '', date_cours: '', type_heure: 'CM', duree: 1.5, salle: '', observations: '' };
 
 export default function Heures() {
+  const { annees, anneeActive, setAnneeActive } = useAnnee();
   const [heures, setHeures] = useState([]);
   const [enseignants, setEnseignants] = useState([]);
   const [matieres, setMatieres] = useState([]);
-  const [anneeActive, setAnneeActive] = useState(2);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -24,8 +26,11 @@ export default function Heures() {
 
   const fetchData = async () => {
     try {
+      const params = {};
+      if (anneeActive) params.annee_id = anneeActive;
+
       const [resH, resE, resM] = await Promise.all([
-        heureApi.getAll(),
+        api.get('/heures', { params }),
         enseignantApi.getAll(),
         matiereApi.getAll(),
       ]);
@@ -36,7 +41,7 @@ export default function Heures() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [anneeActive]);
 
   // Ecouter les changements d'enseignants pour actualiser la liste deroulante
   useDataSync(['enseignants', 'utilisateurs'], fetchData);
@@ -44,11 +49,15 @@ export default function Heures() {
   // Charger le résumé quand on sélectionne un enseignant
   useEffect(() => {
     if (selectedEns) {
-      heureApi.getResume(selectedEns).then(res => setResume(res.data)).catch(() => {});
+      const params = {};
+      if (anneeActive) params.annee_id = anneeActive;
+      api.get(`/heures/resume/${selectedEns}`, { params })
+        .then(res => setResume(res.data))
+        .catch(() => setResume(null));
     } else {
       setResume(null);
     }
-  }, [selectedEns, heures]);
+  }, [selectedEns, heures, anneeActive]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -135,8 +144,25 @@ export default function Heures() {
         </button>
       </div>
 
-      {/* Filtres par statut */}
-      <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm mb-6">
+      {/* Filtres : Année académique + Statut */}
+      <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm mb-6 space-y-3">
+        {/* Sélecteur d'année académique */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <Calendar className="w-4 h-4 text-violet-500" /> Annee academique :
+          </div>
+          <select value={anneeActive || ''} onChange={(e) => setAnneeActive(e.target.value ? parseInt(e.target.value) : null)}
+            className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none bg-violet-50 text-violet-700">
+            <option value="">Toutes les annees</option>
+            {annees.map(a => (
+              <option key={a.id} value={a.id}>
+                {a.libelle} {a.is_active ? '(active)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Filtres par statut */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Filter className="w-4 h-4 text-violet-500" /> Filtrer par statut :

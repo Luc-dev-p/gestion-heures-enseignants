@@ -1,35 +1,47 @@
 const { query } = require('../config/database');
 
-// Récupérer toutes les heures
+// Récupérer toutes les heures (filtrable par annee_id)
 exports.getAll = async (req, res) => {
   try {
-    const result = await query(
-      `SELECT h.*, e.nom as enseignant_nom, e.prenom as enseignant_prenom, 
-              m.intitule as matiere_intitule, a.libelle as annee_libelle
-       FROM heures h
-       LEFT JOIN enseignants e ON h.enseignant_id = e.id
-       LEFT JOIN matieres m ON h.matiere_id = m.id
-       LEFT JOIN annees_academiques a ON h.annee_id = a.id
-       ORDER BY h.date_cours DESC`
-    );
+    const { annee_id } = req.query;
+    let sql = `SELECT h.*, e.nom as enseignant_nom, e.prenom as enseignant_prenom, 
+                      m.intitule as matiere_intitule, a.libelle as annee_libelle
+               FROM heures h
+               LEFT JOIN enseignants e ON h.enseignant_id = e.id
+               LEFT JOIN matieres m ON h.matiere_id = m.id
+               LEFT JOIN annees_academiques a ON h.annee_id = a.id`;
+    const params = [];
+    if (annee_id) {
+      sql += ' WHERE h.annee_id = $1';
+      params.push(annee_id);
+    }
+    sql += ' ORDER BY h.date_cours DESC';
+    const result = await query(sql, params);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ message: 'Erreur serveur' });
   }
 };
 
-// Récupérer par enseignant
+// Récupérer par enseignant (filtrable par annee_id)
 exports.getByEnseignant = async (req, res) => {
   try {
     const { id } = req.params;
+    const { annee_id } = req.query;
+    const params = [id];
+    let anneeFilter = '';
+    if (annee_id) {
+      anneeFilter = ' AND h.annee_id = $2';
+      params.push(annee_id);
+    }
     const result = await query(
       `SELECT h.*, m.intitule as matiere_intitule, a.libelle as annee_libelle
        FROM heures h
        LEFT JOIN matieres m ON h.matiere_id = m.id
        LEFT JOIN annees_academiques a ON h.annee_id = a.id
-       WHERE h.enseignant_id = $1
+       WHERE h.enseignant_id = $1${anneeFilter}
        ORDER BY h.date_cours DESC`,
-      [id]
+      params
     );
     res.json(result.rows);
   } catch (err) {
@@ -37,10 +49,11 @@ exports.getByEnseignant = async (req, res) => {
   }
 };
 
-// Résumé des heures par enseignant
+// Résumé des heures par enseignant (filtrable par annee_id)
 exports.getResume = async (req, res) => {
   try {
     const { id } = req.params;
+    const { annee_id } = req.query;
 
     // Récupérer les équivalences
     const eqCM = await query("SELECT valeur FROM parametres WHERE cle = 'equivalence_cm_td'");
@@ -48,12 +61,20 @@ exports.getResume = async (req, res) => {
     const eqCmTd = parseFloat(eqCM.rows[0]?.valeur || 1.5);
     const eqTpTd = parseFloat(eqTP.rows[0]?.valeur || 1);
 
+    // Paramètres pour le filtre année
+    const heuresParams = [id];
+    let anneeFilter = '';
+    if (annee_id) {
+      anneeFilter = ' AND annee_id = $2';
+      heuresParams.push(annee_id);
+    }
+
     // Heures par type (uniquement les heures validées)
     const heures = await query(
       `SELECT type_heure, SUM(duree) as total 
-       FROM heures WHERE enseignant_id = $1 AND statut = 'valide'
+       FROM heures WHERE enseignant_id = $1${anneeFilter} AND statut = 'valide'
        GROUP BY type_heure`,
-      [id]
+      heuresParams
     );
 
     let cm = 0, td = 0, tp = 0;
@@ -74,12 +95,14 @@ exports.getResume = async (req, res) => {
     const complementaires = heuresEqTD > contractuelles ? heuresEqTD - contractuelles : 0;
     const montantComplementaires = complementaires * taux;
 
-    // Compter les heures en attente et rejetées
+    // Compter les heures en attente et rejetées (avec même filtre année)
     const enAttente = await query(
-      `SELECT COUNT(*) as total FROM heures WHERE enseignant_id = $1 AND statut = 'en_attente'`, [id]
+      `SELECT COUNT(*) as total FROM heures WHERE enseignant_id = $1${anneeFilter} AND statut = 'en_attente'`,
+      heuresParams
     );
     const rejetees = await query(
-      `SELECT COUNT(*) as total FROM heures WHERE enseignant_id = $1 AND statut = 'rejete'`, [id]
+      `SELECT COUNT(*) as total FROM heures WHERE enseignant_id = $1${anneeFilter} AND statut = 'rejete'`,
+      heuresParams
     );
 
     res.json({
@@ -104,10 +127,16 @@ exports.getResume = async (req, res) => {
 exports.create = async (req, res) => {
   try {
     const { enseignant_id, matiere_id, annee_id, date_cours, type_heure, duree, salle, observations } = req.body;
+
+    // Vérifier que annee_id est fourni
+    if (!annee_id) {
+      return res.status(400).json({ message: 'Annee academique requise' });
+    }
+
     const result = await query(
       `INSERT INTO heures (enseignant_id, matiere_id, annee_id, date_cours, type_heure, duree, salle, observations, statut)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'en_attente') RETURNING *`,
-      [enseignant_id, matiere_id, annee_id || 2, date_cours, type_heure, duree, salle, observations]
+      [enseignant_id, matiere_id, annee_id, date_cours, type_heure, duree, salle, observations]
     );
     await query(
       `INSERT INTO action_logs (user_id, action, table_concernee, enregistrement_id, details)
