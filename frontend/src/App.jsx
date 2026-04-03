@@ -10,6 +10,7 @@ import Parametres from './pages/Parametres.jsx';
 import GestionUtilisateurs from './pages/GestionUtilisateurs.jsx';
 import MonEspace from './pages/MonEspace.jsx';
 import Paiements from './pages/Paiements.jsx';
+import Calendrier from './pages/Calendrier.jsx';
 import Layout from './components/Layout.jsx';
 
 function ProtectedRoute({ children, roles }) {
@@ -45,6 +46,7 @@ function App() {
         <Route path="enseignants" element={<ProtectedRoute roles={['admin', 'rh']}><Enseignants /></ProtectedRoute>} />
         <Route path="matieres" element={<ProtectedRoute roles={['admin', 'rh']}><Matieres /></ProtectedRoute>} />
         <Route path="heures" element={<ProtectedRoute roles={['admin', 'rh']}><Heures /></ProtectedRoute>} />
+        <Route path="calendrier" element={<ProtectedRoute roles={['admin', 'rh']}><Calendrier /></ProtectedRoute>} />
         <Route path="paiements" element={<ProtectedRoute roles={['admin', 'rh']}><Paiements /></ProtectedRoute>} />
         <Route path="parametres" element={<ProtectedRoute roles={['admin']}><Parametres /></ProtectedRoute>} />
         <Route path="utilisateurs" element={<ProtectedRoute roles={['admin']}><GestionUtilisateurs /></ProtectedRoute>} />

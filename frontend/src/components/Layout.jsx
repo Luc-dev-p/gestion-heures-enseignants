@@ -66,6 +66,7 @@ export default function Layout() {
     { to: '/enseignants', icon: Users, label: 'Enseignants' },
     { to: '/matieres', icon: BookOpen, label: 'Matières' },
     { to: '/heures', icon: Clock, label: 'Heures' },
+    { to: '/calendrier', icon: CalendarDays, label: 'Calendrier' },
     { to: '/paiements', icon: Wallet, label: 'Paiements' },
   ];
 
@@ -221,7 +222,7 @@ export default function Layout() {
         <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Contenu principal — responsive padding */}
+      {/* Contenu principal */}
       <div className="flex-1 lg:ml-64">
         <header className="bg-white shadow-sm border-b border-gray-100 px-4 sm:px-6 py-4 flex items-center gap-4">
           <button className="lg:hidden text-gray-600" onClick={() => setSidebarOpen(true)}>
