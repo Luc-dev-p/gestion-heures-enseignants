@@ -60,7 +60,8 @@ export default function Dashboard() {
   const handleExportLogsPdf = async () => {
     try {
       setExportingLogs(true);
-      const res = await api.get('/export/logs/pdf', { responseType: 'blob' });
+      // ✅ CORRECTION : chemin corrigé
+      const res = await api.get('/exports/pdf/logs', { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;

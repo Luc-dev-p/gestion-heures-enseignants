@@ -260,6 +260,9 @@ exports.exportPdfComptabilite = async (req, res) => {
     const eqCmTd = parseFloat(eqCM.rows[0]?.valeur || 1.5);
     const eqTpTd = parseFloat(eqTP.rows[0]?.valeur || 1);
 
+    const annee = await query("SELECT libelle FROM annees_academiques WHERE is_active = true LIMIT 1");
+    const anneeLabel = annee.rows[0]?.libelle || new Date().getFullYear().toString();
+
     const result = await query(
       `SELECT e.id, e.nom, e.prenom, e.grade, e.statut, e.departement,
               e.taux_horaire, e.heures_contractuelles,
@@ -276,15 +279,17 @@ exports.exportPdfComptabilite = async (req, res) => {
     );
 
     const doc = new PDFDocument({ layout: 'landscape', size: 'A4' });
-        const dateStr = new Date().toISOString().slice(0, 10);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const fileName = `etat_comptabilite_${anneeLabel.replace(/\s+/g, '_')}_${dateStr}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=rapport_annuel_${dateStr}.pdf`);
+    res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
     res.setHeader('Cache-Control', 'no-store');
     doc.pipe(res);
 
     doc.rect(0, 0, doc.page.width, 60).fill('#6d28d9');
-    doc.fontSize(16).fillColor('#fff').text('ETAT POUR LA COMPTABILITE', 0, 20, { align: 'center' });
-    doc.fontSize(9).text(`Genere le ${new Date().toLocaleDateString('fr-FR')}`, 0, 42, { align: 'center' });
+    doc.fontSize(16).fillColor('#fff').text('ETAT POUR LA COMPTABILITE', 0, 15, { align: 'center' });
+    doc.fontSize(9).fillColor('#e9d5ff').text(`Annee academique: ${anneeLabel}`, 0, 32, { align: 'center' });
+    doc.fontSize(8).fillColor('#c4b5fd').text(`Genere le ${new Date().toLocaleDateString('fr-FR')}`, 0, 44, { align: 'center' });
 
     let y = 80;
     const colX = [30, 90, 160, 230, 280, 330, 370, 410, 450, 510, 580, 660, 740];
@@ -543,6 +548,98 @@ exports.exportPdfBulletin = async (req, res) => {
   }
 };
 
+// ✅ NOUVEAU — Export PDF — Journal des actions (logs)
+exports.exportPdfLogs = async (req, res) => {
+  try {
+    const logsResult = await query(
+      `SELECT l.id, l.action, l.table_concernee, l.details, l.created_at, l.user_nom, l.user_role
+       FROM logs l
+       ORDER BY l.created_at DESC`
+    );
+
+    const doc = new PDFDocument({ layout: 'landscape', size: 'A4' });
+    const dateStr = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=journal_actions_${dateStr}.pdf`);
+    res.setHeader('Cache-Control', 'no-store');
+    doc.pipe(res);
+
+    const pgW = doc.page.width;
+    const pgH = doc.page.height;
+
+    // En-tête
+    doc.rect(0, 0, pgW, 60).fill('#6d28d9');
+    doc.fontSize(18).fillColor('#fff').text('JOURNAL DES ACTIONS', 0, 15, { align: 'center' });
+    doc.fontSize(9).fillColor('#e9d5ff').text(`Genere le ${new Date().toLocaleDateString('fr-FR')} a ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}  |  ${logsResult.rows.length} action(s)`, 0, 40, { align: 'center' });
+
+    let y = 80;
+
+    // Stats rapides
+    const actions = {};
+    logsResult.rows.forEach(l => { actions[l.action] = (actions[l.action] || 0) + 1; });
+    const statsX = 30;
+    Object.entries(actions).forEach(([action, count], i) => {
+      const colors = { CREATE: '#059669', UPDATE: '#2563eb', DELETE: '#dc2626', VALIDATE: '#16a34a', REJECT: '#d97706' };
+      const color = colors[action] || '#6b7280';
+      doc.roundedRect(statsX + i * 110, y, 100, 35, 4).fill('#f9fafb').stroke('#e5e7eb');
+      doc.fillColor(color).fontSize(7).text(action, statsX + i * 110 + 10, y + 6);
+      doc.fillColor(color).fontSize(16).text(count.toString(), statsX + i * 110 + 10, y + 16);
+    });
+    y += 50;
+
+    // En-têtes tableau
+    const colX = [25, 120, 210, 290, 370, 560];
+    doc.rect(20, y, pgW - 40, 20).fill('#6d28d9');
+    doc.fillColor('#fff').fontSize(8);
+    ['Date / Heure', 'Utilisateur', 'Role', 'Action', 'Table', 'Details'].forEach((h, i) => doc.text(h, colX[i], y + 5));
+    y += 24;
+
+    if (logsResult.rows.length === 0) {
+      doc.fillColor('#9ca3af').fontSize(12).text('Aucune action enregistree.', 0, y + 40, { align: 'center', width: pgW });
+    } else {
+      logsResult.rows.forEach((l, i) => {
+        if (y > pgH - 50) { doc.addPage(); y = 50; }
+        if (i % 2 === 0) doc.rect(20, y, pgW - 40, 18).fill('#fafafa');
+
+        doc.fillColor('#374151').fontSize(7);
+        doc.text(new Date(l.created_at).toLocaleString('fr-FR'), colX[0], y + 5);
+        doc.text(l.user_nom || 'Systeme', colX[1], y + 5);
+
+        // Role avec couleur
+        const roleColors = { admin: '#7c3aed', rh: '#2563eb', enseignant: '#059669' };
+        doc.fillColor(roleColors[l.user_role] || '#6b7280');
+        doc.text(l.user_role || '-', colX[2], y + 5);
+
+        // Action avec couleur
+        const actionColors = { CREATE: '#059669', UPDATE: '#2563eb', DELETE: '#dc2626', VALIDATE: '#16a34a', REJECT: '#d97706' };
+        doc.fillColor(actionColors[l.action] || '#6b7280');
+        doc.text(l.action, colX[3], y + 5);
+
+        doc.fillColor('#374151');
+        doc.text(l.table_concernee || '-', colX[4], y + 5);
+        doc.fillColor('#6b7280').fontSize(6.5);
+        doc.text(l.details || '-', colX[5], y + 6, { width: pgW - colX[5] - 30 });
+        y += 20;
+      });
+    }
+
+    // Pied de page
+    const totalPages = doc.bufferedPageRange().count;
+    for (let i = 0; i < totalPages; i++) {
+      doc.switchToPage(i);
+      doc.fontSize(7).fillColor('#9ca3af').text(
+        `GestHeures - Journal des actions | Genere automatiquement | Page ${i + 1}/${totalPages}`,
+        30, pgH - 25, { align: 'center', width: pgW - 60 }
+      );
+    }
+
+    doc.end();
+  } catch (err) {
+    console.error('Erreur PDF logs:', err);
+    res.status(500).json({ message: 'Erreur export logs' });
+  }
+};
+
 // Export PDF — Rapport annuel global
 exports.exportPdfRapportAnnuel = async (req, res) => {
   try {
@@ -551,8 +648,18 @@ exports.exportPdfRapportAnnuel = async (req, res) => {
     const eqCmTd = parseFloat(eqCM.rows[0]?.valeur || 1.5);
     const eqTpTd = parseFloat(eqTP.rows[0]?.valeur || 1);
 
-    const annee = await query("SELECT libelle FROM annees_academiques WHERE is_active = true LIMIT 1");
+    const annee = await query("SELECT libelle, date_debut, date_fin FROM annees_academiques WHERE is_active = true LIMIT 1");
     const anneeLabel = annee.rows[0]?.libelle || new Date().getFullYear().toString();
+    const dateDebut = annee.rows[0]?.date_debut;
+    const dateFin = annee.rows[0]?.date_fin;
+
+    // Construction de la requête avec filtre par année académique si les dates existent
+    let dateFilter = '';
+    const params = [];
+    if (dateDebut && dateFin) {
+      dateFilter = ` AND h.date_cours >= $1 AND h.date_cours <= $2`;
+      params.push(dateDebut, dateFin);
+    }
 
     const result = await query(
       `SELECT e.id, e.nom, e.prenom, e.grade, e.statut, e.departement,
@@ -565,9 +672,10 @@ exports.exportPdfRapportAnnuel = async (req, res) => {
                        WHEN h.type_heure = 'TP' THEN h.duree * ${eqTpTd} ELSE 0 END) as heures_eq_td,
               COUNT(h.id) as nb_seances
        FROM enseignants e
-       LEFT JOIN heures h ON e.id = h.enseignant_id
+       LEFT JOIN heures h ON e.id = h.enseignant_id${dateFilter}
        GROUP BY e.id
-       ORDER BY e.departement, e.nom, e.prenom`
+       ORDER BY e.departement, e.nom, e.prenom`,
+      params
     );
 
     const statsPaiement = await query(
@@ -580,22 +688,34 @@ exports.exportPdfRapportAnnuel = async (req, res) => {
                        WHEN h.type_heure = 'TD' THEN h.duree
                        WHEN h.type_heure = 'TP' THEN h.duree * ${eqTpTd} ELSE 0 END) as total_eq_td
        FROM enseignants e
-       LEFT JOIN heures h ON e.id = h.enseignant_id
+       LEFT JOIN heures h ON e.id = h.enseignant_id${dateFilter}
        GROUP BY e.departement
-       ORDER BY total_eq_td DESC`
+       ORDER BY total_eq_td DESC`,
+      params
     );
 
     const doc = new PDFDocument({ layout: 'landscape', size: 'A4' });
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const safeLabel = anneeLabel.replace(/\s+/g, '_');
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename=rapport_annuel.pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=rapport_annuel_${safeLabel}_${dateStr}.pdf`);
+    res.setHeader('Cache-Control', 'no-store');
     doc.pipe(res);
 
     const pgW = doc.page.width;
     const pgH = doc.page.height;
 
     doc.rect(0, 0, pgW, 70).fill('#6d28d9');
-    doc.fontSize(20).fillColor('#fff').text('RAPPORT ANNUEL — GESTION DES HEURES', 0, 15, { align: 'center' });
-    doc.fontSize(10).fillColor('#e9d5ff').text(`Annee academique: ${anneeLabel}  |  Genere le ${new Date().toLocaleDateString('fr-FR')}`, 0, 45, { align: 'center' });
+    doc.fontSize(20).fillColor('#fff').text('RAPPORT ANNUEL — GESTION DES HEURES', 0, 12, { align: 'center' });
+    doc.fontSize(10).fillColor('#e9d5ff').text(`Annee academique: ${anneeLabel}`, 0, 38, { align: 'center' });
+    if (dateDebut && dateFin) {
+      doc.fontSize(8).fillColor('#c4b5fd').text(
+        `Periode: ${new Date(dateDebut).toLocaleDateString('fr-FR')} au ${new Date(dateFin).toLocaleDateString('fr-FR')}  |  Genere le ${new Date().toLocaleDateString('fr-FR')}`,
+        0, 52, { align: 'center' }
+      );
+    } else {
+      doc.fontSize(8).fillColor('#c4b5fd').text(`Genere le ${new Date().toLocaleDateString('fr-FR')}`, 0, 52, { align: 'center' });
+    }
 
     let y = 90;
 
