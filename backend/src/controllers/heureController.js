@@ -1,7 +1,8 @@
 const { query } = require('../config/database');
+const { createNotification } = require('./notificationController');
 
 // ============================================================
-// RÉCUPÉRER TOUTES LES HEURES (filtrable par annee_id)
+// RÉCUPÉRER TOUTES LES HEURES
 // ============================================================
 exports.getAll = async (req, res) => {
   try {
@@ -26,7 +27,7 @@ exports.getAll = async (req, res) => {
 };
 
 // ============================================================
-// RÉCUPÉRER PAR ENSEIGNANT (filtrable par annee_id)
+// RÉCUPÉRER PAR ENSEIGNANT
 // ============================================================
 exports.getByEnseignant = async (req, res) => {
   try {
@@ -54,7 +55,7 @@ exports.getByEnseignant = async (req, res) => {
 };
 
 // ============================================================
-// RÉSUMÉ DES HEURES PAR ENSEIGNANT (filtrable par annee_id)
+// RÉSUMÉ DES HEURES PAR ENSEIGNANT
 // ============================================================
 exports.getResume = async (req, res) => {
   try {
@@ -124,7 +125,7 @@ exports.getResume = async (req, res) => {
 };
 
 // ============================================================
-// CRÉER UNE HEURE (statut par défaut : en_attente)
+// CRÉER UNE HEURE
 // ============================================================
 exports.create = async (req, res) => {
   try {
@@ -144,6 +145,20 @@ exports.create = async (req, res) => {
        VALUES ($1, 'CREATE', 'heures', $2, $3)`,
       [req.user?.id, result.rows[0].id, `${type_heure} ${duree}h le ${date_cours} (en_attente)`]
     );
+
+    // Notifier l'enseignant
+    const newHeure = result.rows[0];
+    const ensUser = await query('SELECT user_id FROM enseignants WHERE id = $1', [newHeure.enseignant_id]);
+    if (ensUser.rows.length > 0 && ensUser.rows[0].user_id) {
+      await createNotification(
+        ensUser.rows[0].user_id,
+        'info',
+        'Heure saisie',
+        `Une heure de ${newHeure.type_heure} (${newHeure.duree}h) a ete saisie pour vous le ${newHeure.date_cours || ''}.`,
+        { heure_id: newHeure.id, type: 'creer' }
+      );
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ message: 'Erreur serveur' });
@@ -225,6 +240,20 @@ exports.valider = async (req, res) => {
        VALUES ($1, 'VALIDATE', 'heures', $2, 'Validation heure')`,
       [req.user?.id, id]
     );
+
+    // Notifier l'enseignant
+    const heure = result.rows[0];
+    const ensUser = await query('SELECT user_id FROM enseignants WHERE id = $1', [heure.enseignant_id]);
+    if (ensUser.rows.length > 0 && ensUser.rows[0].user_id) {
+      await createNotification(
+        ensUser.rows[0].user_id,
+        'success',
+        'Heure validee',
+        `Votre heure de ${heure.type_heure} (${heure.duree}h) du ${heure.date_cours || ''} a ete validee.`,
+        { heure_id: heure.id, type: 'valider' }
+      );
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ message: 'Erreur serveur' });
@@ -249,6 +278,20 @@ exports.rejeter = async (req, res) => {
        VALUES ($1, 'REJECT', 'heures', $2, 'Rejet heure')`,
       [req.user?.id, id]
     );
+
+    // Notifier l'enseignant
+    const heure = result.rows[0];
+    const ensUser = await query('SELECT user_id FROM enseignants WHERE id = $1', [heure.enseignant_id]);
+    if (ensUser.rows.length > 0 && ensUser.rows[0].user_id) {
+      await createNotification(
+        ensUser.rows[0].user_id,
+        'danger',
+        'Heure rejetee',
+        `Votre heure de ${heure.type_heure} (${heure.duree}h) du ${heure.date_cours || ''} a ete rejetee.`,
+        { heure_id: heure.id, type: 'rejeter' }
+      );
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ message: 'Erreur serveur' });
@@ -261,12 +304,25 @@ exports.rejeter = async (req, res) => {
 exports.delete = async (req, res) => {
   try {
     const { id } = req.params;
+    const ensUser = await query('SELECT user_id FROM enseignants WHERE id = $1', [id]);
     await query('DELETE FROM heures WHERE id = $1', [id]);
     await query(
       `INSERT INTO action_logs (user_id, action, table_concernee, enregistrement_id, details)
        VALUES ($1, 'DELETE', 'heures', $2, 'Suppression heure')`,
       [req.user?.id, id]
     );
+
+    // Notifier l'enseignant
+    if (ensUser.rows.length > 0 && ensUser.rows[0].user_id) {
+      await createNotification(
+        ensUser.rows[0].user_id,
+        'warning',
+        'Heure supprimee',
+        `Une de vos heures a ete supprimee par l'administration.`,
+        { type: 'supprimer' }
+      );
+    }
+
     res.json({ message: 'Heure supprimee' });
   } catch (err) {
     res.status(500).json({ message: 'Erreur serveur' });
@@ -329,7 +385,7 @@ exports.importExcel = async (req, res) => {
     }
 
     const [ensRes, matRes] = await Promise.all([
-      query("SELECT id, nom, prenom, TRIM(nom || ' ' || prenom) as nom_complet FROM enseignants"),
+      query("SELECT id, nom, prenom, user_id, TRIM(nom || ' ' || prenom) as nom_complet FROM enseignants"),
       query('SELECT id, intitule FROM matieres'),
     ]);
 
@@ -439,6 +495,17 @@ exports.importExcel = async (req, res) => {
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'en_attente')`,
           [ensMatch.id, matMatch.id, annee_id, finalDate, typeUpper, dureeNum, salleRaw || null, observationsRaw || null]
         );
+
+        // Notifier l'enseignant de l'import
+        if (ensMatch.user_id) {
+          await createNotification(
+            ensMatch.user_id,
+            'info',
+            'Heure importee',
+            `Une heure de ${typeUpper} (${dureeNum}h) du ${finalDate || ''} a ete importee pour vous.`,
+            { type: 'import' }
+          );
+        }
 
         importees++;
         details_import.push({

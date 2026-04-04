@@ -13,6 +13,7 @@ const exportRoutes = require('./routes/export');
 const parametreRoutes = require('./routes/parametre');
 const paiementRoutes = require('./routes/paiement');
 const backupRoutes = require('./routes/backup');
+const notificationRoutes = require('./routes/notification');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -33,6 +34,7 @@ app.use('/api/exports', exportRoutes);
 app.use('/api/parametres', parametreRoutes);
 app.use('/api/paiements', paiementRoutes);
 app.use('/api/backup', backupRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Test
 app.get('/api/health', (req, res) => {
@@ -50,7 +52,7 @@ app.listen(PORT, () => {
   console.log(`\n🚀 Serveur sur http://localhost:${PORT}\n`);
 });
 
-// Lancer le planificateur de sauvegardes automatiques
+// Lancer le planificateur de sauvegardes
 const { startScheduler } = require('./utils/backupScheduler');
 setTimeout(async () => {
   try {
