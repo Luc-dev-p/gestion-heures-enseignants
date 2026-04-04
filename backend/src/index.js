@@ -12,6 +12,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const exportRoutes = require('./routes/export');
 const parametreRoutes = require('./routes/parametre');
 const paiementRoutes = require('./routes/paiement');
+const backupRoutes = require('./routes/backup');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -31,10 +32,11 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/exports', exportRoutes);
 app.use('/api/parametres', parametreRoutes);
 app.use('/api/paiements', paiementRoutes);
+app.use('/api/backup', backupRoutes);
 
 // Test
 app.get('/api/health', (req, res) => {
-  res.json({ message: 'API opérationnelle ✅' });
+  res.json({ message: 'API operationnelle ✅' });
 });
 
 // Erreurs
@@ -47,3 +49,16 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`\n🚀 Serveur sur http://localhost:${PORT}\n`);
 });
+
+// Lancer le planificateur de sauvegardes automatiques
+const { startScheduler } = require('./utils/backupScheduler');
+setTimeout(async () => {
+  try {
+    const { query } = require('./config/database');
+    const result = await query("SELECT valeur FROM parametres WHERE cle = 'backup_enabled'");
+    if (result.rows[0]?.valeur === 'true') {
+      const freq = await query("SELECT valeur FROM parametres WHERE cle = 'backup_frequency'");
+      startScheduler(freq.rows[0]?.valeur || 'daily');
+    }
+  } catch {}
+}, 3000);
