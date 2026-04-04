@@ -28,3 +28,7 @@ exports.authorize = (...roles) => {
     next();
   };
 };
+
+// Alias pour compatibilité avec les routes
+exports.verifyToken = exports.protect;
+exports.isAdmin = exports.authorize('admin');

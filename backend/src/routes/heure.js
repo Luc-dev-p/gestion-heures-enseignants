@@ -1,18 +1,24 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../middleware/auth');
+// const multer = require('multer');        ← COMMENTE
+const { verifyToken, isAdmin } = require('../middleware/auth');
 const heureController = require('../controllers/heureController');
 
-// Routes publiques (authentifiées)
-router.get('/', protect, heureController.getAll);
-router.get('/enseignant/:id', protect, heureController.getByEnseignant);
-router.get('/resume/:id', protect, heureController.getResume);
-router.get('/annees', protect, heureController.getAnnees);
+// COMMENTE tout le bloc upload jusqu'à la ligne 22
 
-// Routes RH / Admin uniquement
-router.post('/', protect, authorize('admin', 'rh'), heureController.create);
-router.put('/valider/:id', protect, authorize('admin', 'rh'), heureController.valider);
-router.put('/rejeter/:id', protect, authorize('admin', 'rh'), heureController.rejeter);
-router.delete('/:id', protect, authorize('admin', 'rh'), heureController.delete);
+// Routes GET
+router.get('/annees', verifyToken, heureController.getAnnees);
+router.get('/enseignant/:id', verifyToken, heureController.getByEnseignant);
+router.get('/resume/:id', verifyToken, heureController.getResume);
+router.get('/:id', verifyToken, heureController.getById);
+router.get('/', verifyToken, heureController.getAll);
+
+// Routes POST / PUT / DELETE (admin)
+router.post('/', verifyToken, isAdmin, heureController.create);
+router.put('/:id', verifyToken, isAdmin, heureController.update);
+router.delete('/:id', verifyToken, isAdmin, heureController.delete);
+
+// COMMENTE la route import aussi
+// router.post('/import', verifyToken, isAdmin, upload.single('file'), heureController.importExcel);
 
 module.exports = router;
