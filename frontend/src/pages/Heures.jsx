@@ -4,13 +4,21 @@ import { enseignantApi } from '../api/enseignantApi';
 import { matiereApi } from '../api/matiereApi';
 import api from '../api/axios';
 import toast from 'react-hot-toast';
-import { Plus, Trash2, Clock, Calculator, X, AlertTriangle, CheckCircle, XCircle, Filter, Calendar } from 'lucide-react';
+import {
+  Plus, Trash2, Clock, Calculator, X, AlertTriangle,
+  CheckCircle, XCircle, Filter, Calendar, Upload,
+  FileSpreadsheet, Download
+} from 'lucide-react';
 import { useDataSync } from '../hooks/useDataSync';
 import { emitDataChange } from '../utils/dataSync';
 import { useAnnee } from '../context/AnneeContext';
+import * as XLSX from 'xlsx';
 
 const TYPES = ['CM', 'TD', 'TP'];
-const emptyForm = { enseignant_id: '', matiere_id: '', date_cours: '', type_heure: 'CM', duree: 1.5, salle: '', observations: '' };
+const emptyForm = {
+  enseignant_id: '', matiere_id: '', date_cours: '',
+  type_heure: 'CM', duree: 1.5, salle: '', observations: ''
+};
 
 export default function Heures() {
   const { annees, anneeActive, setAnneeActive } = useAnnee();
@@ -24,6 +32,13 @@ export default function Heures() {
   const [selectedEns, setSelectedEns] = useState('');
   const [filterStatut, setFilterStatut] = useState('tous');
 
+  // ===== IMPORT EXCEL =====
+  const [importModal, setImportModal] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+
+  // ===== FETCH =====
   const fetchData = async () => {
     try {
       const params = {};
@@ -37,16 +52,16 @@ export default function Heures() {
       setHeures(resH.data);
       setEnseignants(resE.data);
       setMatieres(resM.data);
-    } catch { toast.error('Erreur de chargement'); }
-    finally { setLoading(false); }
+    } catch {
+      toast.error('Erreur de chargement');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchData(); }, [anneeActive]);
-
-  // Ecouter les changements d'enseignants pour actualiser la liste deroulante
   useDataSync(['enseignants', 'utilisateurs'], fetchData);
 
-  // Charger le résumé quand on sélectionne un enseignant
   useEffect(() => {
     if (selectedEns) {
       const params = {};
@@ -59,6 +74,7 @@ export default function Heures() {
     }
   }, [selectedEns, heures, anneeActive]);
 
+  // ===== CRUD =====
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -68,7 +84,9 @@ export default function Heures() {
       setForm(emptyForm);
       fetchData();
       emitDataChange('heures');
-    } catch (err) { toast.error('Erreur'); }
+    } catch {
+      toast.error('Erreur');
+    }
   };
 
   const handleDelete = async (id) => {
@@ -77,7 +95,9 @@ export default function Heures() {
       toast.success('Heure supprimee');
       fetchData();
       emitDataChange('heures');
-    } catch { toast.error('Erreur'); }
+    } catch {
+      toast.error('Erreur');
+    }
   };
 
   const handleValider = async (id) => {
@@ -86,7 +106,9 @@ export default function Heures() {
       toast.success('Heure validee');
       fetchData();
       emitDataChange('heures');
-    } catch { toast.error('Erreur'); }
+    } catch {
+      toast.error('Erreur');
+    }
   };
 
   const handleRejeter = async (id) => {
@@ -95,20 +117,91 @@ export default function Heures() {
       toast.success('Heure rejetee');
       fetchData();
       emitDataChange('heures');
-    } catch { toast.error('Erreur'); }
+    } catch {
+      toast.error('Erreur');
+    }
   };
 
-  // Filtrer par statut
+  // ===== IMPORT EXCEL — Télécharger modèle (généré côté frontend) =====
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      {
+        'Enseignant': 'Dupont Jean',
+        'Matière': 'Algorithmique',
+        'Date cours': '15/09/2024',
+        'Type heure': 'CM',
+        'Durée (h)': 1.5,
+        'Salle': 'A101',
+        'Observations': ''
+      },
+      {
+        'Enseignant': 'Martin Marie',
+        'Matière': 'Base de données',
+        'Date cours': '16/09/2024',
+        'Type heure': 'TD',
+        'Durée (h)': 2,
+        'Salle': 'B205',
+        'Observations': 'Groupe 2'
+      },
+      {
+        'Enseignant': 'Bernard Pierre',
+        'Matière': 'Réseaux',
+        'Date cours': '17/09/2024',
+        'Type heure': 'TP',
+        'Durée (h)': 3,
+        'Salle': 'Labo Info 3',
+        'Observations': ''
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    ws['!cols'] = [
+      { wch: 25 }, { wch: 25 }, { wch: 15 },
+      { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 30 }
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Import Heures');
+    XLSX.writeFile(wb, 'modele_import_heures.xlsx');
+    toast.success('Modele telecharge');
+  };
+
+  // ===== IMPORT EXCEL — Lancer l'import =====
+  const handleImport = async (e) => {
+    e.preventDefault();
+    if (!importFile || !anneeActive) return;
+    try {
+      setImporting(true);
+      setImportResult(null);
+      const res = await heureApi.importExcel(importFile, anneeActive);
+      setImportResult(res.data);
+      if (res.data.importees > 0) {
+        toast.success(`${res.data.importees} heure(s) importee(s)`);
+        fetchData();
+        emitDataChange('heures');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Erreur import');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const closeImportModal = () => {
+    setImportModal(false);
+    setImportFile(null);
+    setImportResult(null);
+  };
+
+  // ===== FILTRES =====
   const filteredHeures = filterStatut === 'tous'
     ? heures
     : heures.filter(h => h.statut === filterStatut);
 
-  // Compteurs par statut
   const nbEnAttente = heures.filter(h => h.statut === 'en_attente').length;
   const nbValidees = heures.filter(h => h.statut === 'valide').length;
   const nbRejetees = heures.filter(h => h.statut === 'rejete').length;
 
-  // Badge de statut
+  // ===== BADGE STATUT =====
   const getStatutBadge = (statut) => {
     switch (statut) {
       case 'valide':
@@ -132,27 +225,47 @@ export default function Heures() {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-violet-600"></div></div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-violet-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div>
+      {/* ===== HEADER ===== */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Saisie et Validation des Heures</h2>
-        <button onClick={() => { setForm(emptyForm); setModalOpen(true); }}
-          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white font-medium rounded-xl hover:from-violet-700 hover:to-fuchsia-600 transition-all shadow-lg">
-          <Plus className="w-4 h-4" /> Saisir des heures
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setImportModal(true); setImportResult(null); setImportFile(null); }}
+            className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-emerald-200 text-emerald-700 font-medium rounded-xl hover:bg-emerald-50 transition-all"
+          >
+            <Upload className="w-4 h-4" /> Import Excel
+          </button>
+          <button
+            onClick={() => { setForm(emptyForm); setModalOpen(true); }}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white font-medium rounded-xl hover:from-violet-700 hover:to-fuchsia-600 transition-all shadow-lg"
+          >
+            <Plus className="w-4 h-4" /> Saisir des heures
+          </button>
+        </div>
       </div>
 
-      {/* Filtres : Année académique + Statut */}
+      {/* ===== FILTRES : Année + Statut ===== */}
       <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm mb-6 space-y-3">
-        {/* Sélecteur d'année académique */}
+        {/* Sélecteur d'année */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <Calendar className="w-4 h-4 text-violet-500" /> Annee academique :
           </div>
-          <select value={anneeActive || ''} onChange={(e) => setAnneeActive(e.target.value ? parseInt(e.target.value) : null)}
-            className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none bg-violet-50 text-violet-700">
+          <select
+            value={anneeActive || ''}
+            onChange={(e) => setAnneeActive(e.target.value ? parseInt(e.target.value) : null)}
+            className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none bg-violet-50 text-violet-700"
+          >
             <option value="">Toutes les annees</option>
             {annees.map(a => (
               <option key={a.id} value={a.id}>
@@ -168,33 +281,64 @@ export default function Heures() {
             <Filter className="w-4 h-4 text-violet-500" /> Filtrer par statut :
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => setFilterStatut('tous')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${filterStatut === 'tous' ? 'bg-violet-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            <button
+              onClick={() => setFilterStatut('tous')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                filterStatut === 'tous'
+                  ? 'bg-violet-600 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
               Tous ({heures.length})
             </button>
-            <button onClick={() => setFilterStatut('en_attente')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${filterStatut === 'en_attente' ? 'bg-amber-500 text-white shadow-sm' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}>
+            <button
+              onClick={() => setFilterStatut('en_attente')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                filterStatut === 'en_attente'
+                  ? 'bg-amber-500 text-white shadow-sm'
+                  : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+              }`}
+            >
               En attente ({nbEnAttente})
             </button>
-            <button onClick={() => setFilterStatut('valide')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${filterStatut === 'valide' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}>
+            <button
+              onClick={() => setFilterStatut('valide')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                filterStatut === 'valide'
+                  ? 'bg-emerald-500 text-white shadow-sm'
+                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+              }`}
+            >
               Validees ({nbValidees})
             </button>
-            <button onClick={() => setFilterStatut('rejete')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${filterStatut === 'rejete' ? 'bg-red-500 text-white shadow-sm' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}>
+            <button
+              onClick={() => setFilterStatut('rejete')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                filterStatut === 'rejete'
+                  ? 'bg-red-500 text-white shadow-sm'
+                  : 'bg-red-50 text-red-700 hover:bg-red-100'
+              }`}
+            >
               Rejetees ({nbRejetees})
             </button>
           </div>
         </div>
       </div>
 
-      {/* Résumé enseignant */}
+      {/* ===== RÉSUMÉ ENSEIGNANT ===== */}
       <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2"><Calculator className="w-4 h-4 text-violet-500" /> Voir le resume d'un enseignant (heures validees uniquement)</label>
-        <select value={selectedEns} onChange={(e) => setSelectedEns(e.target.value)}
-          className="w-full sm:w-80 px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm">
+        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+          <Calculator className="w-4 h-4 text-violet-500" /> Voir le resume d'un enseignant (heures validees uniquement)
+        </label>
+        <select
+          value={selectedEns}
+          onChange={(e) => setSelectedEns(e.target.value)}
+          className="w-full sm:w-80 px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm"
+        >
           <option value="">-- Choisir un enseignant --</option>
-          {enseignants.map(e => <option key={e.id} value={e.id}>{e.nom} {e.prenom}</option>)}
+          {enseignants.map(e => (
+            <option key={e.id} value={e.id}>{e.nom} {e.prenom}</option>
+          ))}
         </select>
 
         {resume && (
@@ -222,8 +366,12 @@ export default function Heures() {
               <p className="text-xl font-bold text-gray-800">{resume.heures_contractuelles}h</p>
             </div>
             <div className={`rounded-lg p-3 ${resume.heures_complementaires > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-              <p className={`text-xs font-medium ${resume.heures_complementaires > 0 ? 'text-red-600' : 'text-green-600'}`}>Complementaires</p>
-              <p className={`text-xl font-bold ${resume.heures_complementaires > 0 ? 'text-red-800' : 'text-green-800'}`}>{resume.heures_complementaires}h</p>
+              <p className={`text-xs font-medium ${resume.heures_complementaires > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                Complementaires
+              </p>
+              <p className={`text-xl font-bold ${resume.heures_complementaires > 0 ? 'text-red-800' : 'text-green-800'}`}>
+                {resume.heures_complementaires}h
+              </p>
             </div>
             {resume.nb_en_attente > 0 && (
               <div className="bg-amber-50 rounded-lg p-3">
@@ -253,7 +401,7 @@ export default function Heures() {
         )}
       </div>
 
-      {/* Tableau */}
+      {/* ===== TABLEAU ===== */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -271,87 +419,150 @@ export default function Heures() {
             </thead>
             <tbody>
               {filteredHeures.length === 0 ? (
-                <tr><td colSpan="8" className="text-center py-8 text-gray-400">{filterStatut !== 'tous' ? 'Aucune heure avec ce statut' : 'Aucune heure saisie'}</td></tr>
-              ) : filteredHeures.map((h) => (
-                <tr key={h.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${h.statut === 'rejete' ? 'opacity-60' : ''}`}>
-                  <td className="px-4 py-3">{getStatutBadge(h.statut)}</td>
-                  <td className="px-4 py-3 text-gray-600">{h.date_cours}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{h.enseignant_nom} {h.enseignant_prenom}</td>
-                  <td className="px-4 py-3 text-gray-600">{h.matiere_intitule || '-'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      h.type_heure === 'CM' ? 'bg-violet-100 text-violet-700' :
-                      h.type_heure === 'TD' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
-                    }`}>{h.type_heure}</span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{h.duree}h</td>
-                  <td className="px-4 py-3 text-gray-600">{h.salle || '-'}</td>
-                  <td className="px-4 py-3 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      {h.statut === 'en_attente' && (
-                        <>
-                          <button onClick={() => handleValider(h.id)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Valider">
-                            <CheckCircle className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleRejeter(h.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Rejeter">
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
-                      {h.statut === 'rejete' && (
-                        <button onClick={() => handleValider(h.id)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Valider">
-                          <CheckCircle className="w-4 h-4" />
-                        </button>
-                      )}
-                      <button onClick={() => handleDelete(h.id)} className="p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 rounded-lg" title="Supprimer">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                <tr>
+                  <td colSpan="8" className="text-center py-8 text-gray-400">
+                    {filterStatut !== 'tous' ? 'Aucune heure avec ce statut' : 'Aucune heure saisie'}
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredHeures.map((h) => (
+                  <tr
+                    key={h.id}
+                    className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${
+                      h.statut === 'rejete' ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <td className="px-4 py-3">{getStatutBadge(h.statut)}</td>
+                    <td className="px-4 py-3 text-gray-600">{h.date_cours}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800">
+                      {h.enseignant_nom} {h.enseignant_prenom}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{h.matiere_intitule || '-'}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          h.type_heure === 'CM'
+                            ? 'bg-violet-100 text-violet-700'
+                            : h.type_heure === 'TD'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}
+                      >
+                        {h.type_heure}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{h.duree}h</td>
+                    <td className="px-4 py-3 text-gray-600">{h.salle || '-'}</td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        {h.statut === 'en_attente' && (
+                          <>
+                            <button
+                              onClick={() => handleValider(h.id)}
+                              className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg"
+                              title="Valider"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleRejeter(h.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                              title="Rejeter"
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                        {h.statut === 'rejete' && (
+                          <button
+                            onClick={() => handleValider(h.id)}
+                            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg"
+                            title="Valider"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDelete(h.id)}
+                          className="p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 rounded-lg"
+                          title="Supprimer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Modal */}
+      {/* ===== MODAL SAISIE HEURE ===== */}
       {modalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg">
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
-              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Clock className="w-5 h-5 text-violet-500" /> Saisir des heures</h3>
-              <button onClick={() => setModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-violet-500" /> Saisir des heures
+              </h3>
+              <button
+                onClick={() => setModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Enseignant *</label>
-                  <select value={form.enseignant_id} onChange={(e) => setForm({ ...form, enseignant_id: e.target.value })} required
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm">
+                  <select
+                    value={form.enseignant_id}
+                    onChange={(e) => setForm({ ...form, enseignant_id: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm"
+                  >
                     <option value="">-- Choisir --</option>
-                    {enseignants.map(e => <option key={e.id} value={e.id}>{e.nom} {e.prenom}</option>)}
+                    {enseignants.map(e => (
+                      <option key={e.id} value={e.id}>{e.nom} {e.prenom}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Matiere *</label>
-                  <select value={form.matiere_id} onChange={(e) => setForm({ ...form, matiere_id: e.target.value })} required
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm">
+                  <select
+                    value={form.matiere_id}
+                    onChange={(e) => setForm({ ...form, matiere_id: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm"
+                  >
                     <option value="">-- Choisir --</option>
-                    {matieres.map(m => <option key={m.id} value={m.id}>{m.intitule}</option>)}
+                    {matieres.map(m => (
+                      <option key={m.id} value={m.id}>{m.intitule}</option>
+                    ))}
                   </select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
-                  <input type="date" value={form.date_cours} onChange={(e) => setForm({ ...form, date_cours: e.target.value })} required
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm" />
+                  <input
+                    type="date"
+                    value={form.date_cours}
+                    onChange={(e) => setForm({ ...form, date_cours: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
-                  <select value={form.type_heure} onChange={(e) => setForm({ ...form, type_heure: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm">
+                  <select
+                    value={form.type_heure}
+                    onChange={(e) => setForm({ ...form, type_heure: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm"
+                  >
                     {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
@@ -359,27 +570,199 @@ export default function Heures() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Duree (h) *</label>
-                  <input type="number" step="0.5" min="0.5" value={form.duree}
-                    onChange={(e) => setForm({ ...form, duree: parseFloat(e.target.value) || 0 })} required
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm" />
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    value={form.duree}
+                    onChange={(e) => setForm({ ...form, duree: parseFloat(e.target.value) || 0 })}
+                    required
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Salle</label>
-                  <input type="text" value={form.salle} onChange={(e) => setForm({ ...form, salle: e.target.value })}
+                  <input
+                    type="text"
+                    value={form.salle}
+                    onChange={(e) => setForm({ ...form, salle: e.target.value })}
                     placeholder="Ex: A101"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm" />
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm"
+                  />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Observations</label>
-                <textarea value={form.observations} onChange={(e) => setForm({ ...form, observations: e.target.value })}
-                  rows="2" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm" />
+                <textarea
+                  value={form.observations}
+                  onChange={(e) => setForm({ ...form, observations: e.target.value })}
+                  rows="2"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm"
+                />
               </div>
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => setModalOpen(false)} className="flex-1 py-2.5 border border-gray-200 text-gray-600 font-medium rounded-xl hover:bg-gray-50">Annuler</button>
-                <button type="submit" className="flex-1 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white font-medium rounded-xl hover:from-violet-700 hover:to-fuchsia-600">Enregistrer</button>
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  className="flex-1 py-2.5 border border-gray-200 text-gray-600 font-medium rounded-xl hover:bg-gray-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white font-medium rounded-xl hover:from-violet-700 hover:to-fuchsia-600"
+                >
+                  Enregistrer
+                </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===== MODAL IMPORT EXCEL ===== */}
+      {importModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] overflow-hidden">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-600" /> Import Excel en masse
+              </h3>
+              <button
+                onClick={closeImportModal}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {!importResult ? (
+              /* ===== FORMULAIRE IMPORT ===== */
+              <form onSubmit={handleImport} className="p-6 space-y-4">
+                {/* Instructions */}
+                <div className="bg-violet-50 rounded-xl p-4 text-sm text-violet-800 space-y-2">
+                  <p className="font-semibold">Instructions :</p>
+                  <ul className="list-disc pl-5 space-y-1 text-violet-700">
+                    <li>Telechargez d'abord le modele Excel ci-dessous</li>
+                    <li>Remplissez les colonnes avec vos donnees</li>
+                    <li>Les noms d'enseignants et matieres doivent correspondre exactement a ceux en base</li>
+                    <li>
+                      Types autorises :{' '}
+                      <span className="font-mono bg-white px-1 rounded">CM</span>,{' '}
+                      <span className="font-mono bg-white px-1 rounded">TD</span>,{' '}
+                      <span className="font-mono bg-white px-1 rounded">TP</span>
+                    </li>
+                    <li>
+                      Format date :{' '}
+                      <span className="font-mono bg-white px-1 rounded">YYYY-MM-DD</span> ou{' '}
+                      <span className="font-mono bg-white px-1 rounded">DD/MM/YYYY</span>
+                    </li>
+                  </ul>
+                </div>
+
+                {/* Télécharger modèle */}
+                <button
+                  type="button"
+                  onClick={handleDownloadTemplate}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-50 border-2 border-emerald-200 text-emerald-700 font-medium rounded-xl hover:bg-emerald-100 transition-colors"
+                >
+                  <Download className="w-4 h-4" /> Telecharger le modele Excel
+                </button>
+
+                {/* Upload fichier */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fichier Excel *</label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={(e) => setImportFile(e.target.files[0])}
+                    required
+                    className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
+                  />
+                  {importFile && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Fichier selectionne : {importFile.name}
+                    </p>
+                  )}
+                </div>
+
+                {/* Boutons */}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeImportModal}
+                    className="flex-1 py-2.5 border border-gray-200 text-gray-600 font-medium rounded-xl hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={importing || !importFile}
+                    className="flex-1 py-2.5 bg-gradient-to-r from-emerald-500 to-green-600 text-white font-medium rounded-xl hover:from-emerald-600 hover:to-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    {importing ? 'Import en cours...' : 'Importer'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* ===== RÉSULTAT DE L'IMPORT ===== */
+              <div className="p-6 space-y-4">
+                {/* Résumé */}
+                <div className={`rounded-xl p-4 text-center ${
+                  importResult.erreurs === 0 ? 'bg-emerald-50' : 'bg-amber-50'
+                }`}>
+                  <CheckCircle
+                    className={`w-10 h-10 mx-auto mb-2 ${
+                      importResult.erreurs === 0 ? 'text-emerald-500' : 'text-amber-500'
+                    }`}
+                  />
+                  <p className="font-bold text-gray-800">{importResult.importees} heure(s) importee(s)</p>
+                  <p className="text-sm text-gray-500">
+                    sur {importResult.total_lignes} ligne(s) traitee(s)
+                  </p>
+                </div>
+
+                {/* Erreurs */}
+                {importResult.erreurs > 0 && (
+                  <div className="bg-red-50 rounded-xl p-4 border border-red-200">
+                    <p className="font-semibold text-red-700 mb-2 flex items-center gap-1">
+                      <AlertTriangle className="w-4 h-4" />
+                      {importResult.erreurs} erreur(s) :
+                    </p>
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {importResult.details_erreurs.map((err, i) => (
+                        <p key={i} className="text-sm text-red-600">{err}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Détails importés */}
+                {importResult.details_import && importResult.details_import.length > 0 && (
+                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                    <p className="font-semibold text-gray-700 mb-2">Heures importees :</p>
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {importResult.details_import.map((d, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs text-gray-600">
+                          <CheckCircle className="w-3 h-3 text-emerald-500 shrink-0" />
+                          <span>
+                            Ligne {d.ligne} : {d.enseignant} — {d.matiere} — {d.type} {d.duree}h ({d.date})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={closeImportModal}
+                  className="w-full py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white font-medium rounded-xl hover:from-violet-700 hover:to-fuchsia-600"
+                >
+                  Fermer
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

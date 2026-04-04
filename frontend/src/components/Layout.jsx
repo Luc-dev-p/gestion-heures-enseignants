@@ -2,13 +2,14 @@ import { Outlet, NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, Users, BookOpen, Clock, LogOut, Menu, X,
-  GraduationCap, Download, Settings, Shield, User, ChevronDown, Wallet, KeyRound
+  GraduationCap, Download, Settings, Shield, User, ChevronDown, Wallet, KeyRound, Database
 } from 'lucide-react';
 import { useState } from 'react';
 import { exportApi, downloadBlob } from '../api/exportApi';
 import toast from 'react-hot-toast';
 import { useAnnee } from '../context/AnneeContext';
 import { CalendarDays } from 'lucide-react';
+import NotificationBell from './NotificationBell';
 
 export default function Layout() {
   const { user, logout, changePassword } = useAuth();
@@ -16,7 +17,6 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  // Modal changement mot de passe
   const [passwordModal, setPasswordModal] = useState(false);
   const [currentPwd, setCurrentPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
@@ -38,21 +38,13 @@ export default function Layout() {
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
-    if (newPwd !== confirmPwd) {
-      toast.error('Les mots de passe ne correspondent pas');
-      return;
-    }
-    if (newPwd.length < 6) {
-      toast.error('Minimum 6 caracteres requis');
-      return;
-    }
+    if (newPwd !== confirmPwd) { toast.error('Les mots de passe ne correspondent pas'); return; }
+    if (newPwd.length < 6) { toast.error('Minimum 6 caracteres requis'); return; }
     try {
       setChangingPwd(true);
       await changePassword(currentPwd, newPwd);
       setPasswordModal(false);
-      setCurrentPwd('');
-      setNewPwd('');
-      setConfirmPwd('');
+      setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
     } catch { /* erreur déjà gérée */ }
     finally { setChangingPwd(false); }
   };
@@ -73,6 +65,7 @@ export default function Layout() {
   const settingsLinks = [
     { to: '/parametres', icon: Settings, label: 'Paramètres' },
     { to: '/utilisateurs', icon: Shield, label: 'Utilisateurs' },
+    { to: '/sauvegardes', icon: Database, label: 'Sauvegardes' },
   ];
 
   const exportItems = [
@@ -86,17 +79,13 @@ export default function Layout() {
 
   const linkClass = ({ isActive }) =>
     `flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-      isActive
-        ? 'bg-white/20 text-white shadow-lg'
-        : 'text-violet-200 hover:bg-white/10 hover:text-white'
+      isActive ? 'bg-white/20 text-white shadow-lg' : 'text-violet-200 hover:bg-white/10 hover:text-white'
     }`;
 
   return (
     <div className="min-h-screen flex">
-      {/* ===== SIDEBAR ===== */}
+      {/* SIDEBAR */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-violet-900 to-violet-800 transform transition-transform duration-300 lg:translate-x-0 flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-
-        {/* Logo */}
         <div className="flex items-center gap-3 p-5 border-b border-violet-700 shrink-0">
           <GraduationCap className="w-7 h-7 text-white" />
           <span className="text-white font-bold text-lg">GestHeures</span>
@@ -105,22 +94,14 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Sélecteur d'année académique */}
         {!loadingAnnees && annees.length > 0 && (
           <div className="px-4 py-3 border-b border-violet-700 shrink-0">
             <div className="flex items-center gap-2">
               <CalendarDays className="w-4 h-4 text-violet-300 shrink-0" />
-              <select
-                value={anneeActive || ''}
-                onChange={(e) => setAnneeActive(Number(e.target.value))}
-                className="w-full bg-white/10 border border-violet-500/30 text-white text-sm rounded-lg px-3 py-1.5
-                           focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent
-                           cursor-pointer hover:bg-white/15 transition-colors appearance-none"
-              >
+              <select value={anneeActive || ''} onChange={(e) => setAnneeActive(Number(e.target.value))}
+                className="w-full bg-white/10 border border-violet-500/30 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent cursor-pointer hover:bg-white/15 transition-colors appearance-none">
                 {annees.map((a) => (
-                  <option key={a.id} value={a.id} className="text-gray-900 bg-white">
-                    {a.libelle} {a.is_active ? '●' : ''}
-                  </option>
+                  <option key={a.id} value={a.id} className="text-gray-900 bg-white">{a.libelle} {a.is_active ? '●' : ''}</option>
                 ))}
               </select>
             </div>
@@ -128,10 +109,7 @@ export default function Layout() {
           </div>
         )}
 
-        {/* Navigation scrollable */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1 sidebar-scroll">
-
-          {/* Enseignant uniquement */}
           {user?.role === 'enseignant' && (
             enseignantLinks.map(({ to, icon: Icon, label }) => (
               <NavLink key={to} to={to} end onClick={() => setSidebarOpen(false)} className={linkClass}>
@@ -140,7 +118,6 @@ export default function Layout() {
             ))
           )}
 
-          {/* Gestion — admin / rh */}
           {isAdminOrRh && (
             <>
               <p className="px-4 pt-3 pb-1 text-[10px] text-violet-400 uppercase tracking-widest font-semibold">Gestion</p>
@@ -152,7 +129,6 @@ export default function Layout() {
             </>
           )}
 
-          {/* Administration — admin uniquement */}
           {isAdmin && (
             <>
               <p className="px-4 pt-3 pb-1 text-[10px] text-violet-400 uppercase tracking-widest font-semibold">Administration</p>
@@ -164,15 +140,12 @@ export default function Layout() {
             </>
           )}
 
-          {/* Exports — admin / rh */}
           {isAdminOrRh && (
             <>
               <p className="px-4 pt-3 pb-1 text-[10px] text-violet-400 uppercase tracking-widest font-semibold">Exports</p>
               <div className="group relative">
-                <button
-                  disabled={exporting}
-                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium w-full text-violet-200 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50"
-                >
+                <button disabled={exporting}
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium w-full text-violet-200 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50">
                   <Download className="w-5 h-5" />
                   <span className="flex-1 text-left">Exports</span>
                   <ChevronDown className="w-4 h-4 transition-transform duration-200 group-hover:rotate-180" />
@@ -180,14 +153,9 @@ export default function Layout() {
                 <div className="overflow-hidden max-h-0 group-hover:max-h-56 transition-all duration-300 ease-in-out">
                   <div className="pl-3 pt-1 pb-1 space-y-0.5">
                     {exportItems.map(({ type, filename, label }) => (
-                      <button
-                        key={type}
-                        onClick={() => handleExport(type, filename)}
-                        disabled={exporting}
-                        className="flex items-center gap-2.5 px-4 py-2 rounded-lg text-sm text-violet-300 hover:bg-white/10 hover:text-white transition-all w-full disabled:opacity-50"
-                      >
-                        <Download className="w-4 h-4 opacity-60" />
-                        {label}
+                      <button key={type} onClick={() => handleExport(type, filename)} disabled={exporting}
+                        className="flex items-center gap-2.5 px-4 py-2 rounded-lg text-sm text-violet-300 hover:bg-white/10 hover:text-white transition-all w-full disabled:opacity-50">
+                        <Download className="w-4 h-4 opacity-60" />{label}
                       </button>
                     ))}
                   </div>
@@ -197,7 +165,6 @@ export default function Layout() {
           )}
         </nav>
 
-        {/* Footer */}
         <div className="shrink-0 p-4 border-t border-violet-700">
           <div className="flex items-center gap-3 px-3 py-2">
             <div className="w-8 h-8 rounded-full bg-violet-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
@@ -217,25 +184,26 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Overlay mobile */}
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Contenu principal */}
       <div className="flex-1 lg:ml-64">
-        <header className="bg-white shadow-sm border-b border-gray-100 px-4 sm:px-6 py-4 flex items-center gap-4">
-          <button className="lg:hidden text-gray-600" onClick={() => setSidebarOpen(true)}>
-            <Menu className="w-6 h-6" />
-          </button>
-          <h1 className="text-lg sm:text-xl font-semibold text-gray-800">Gestion des Heures</h1>
+        <header className="bg-white shadow-sm border-b border-gray-100 px-4 sm:px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button className="lg:hidden text-gray-600" onClick={() => setSidebarOpen(true)}>
+              <Menu className="w-6 h-6" />
+            </button>
+            <h1 className="text-lg sm:text-xl font-semibold text-gray-800">Gestion des Heures</h1>
+          </div>
+          <NotificationBell />
         </header>
         <main className="p-4 sm:p-6">
           <Outlet />
         </main>
       </div>
 
-      {/* ===== MODAL CHANGER MOT DE PASSE ===== */}
+      {/* MODAL CHANGER MOT DE PASSE */}
       {passwordModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-2xl w-full max-w-md">
@@ -250,27 +218,22 @@ export default function Layout() {
             <form onSubmit={handleChangePassword} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Mot de passe actuel</label>
-                <input type="password" value={currentPwd} onChange={(e) => setCurrentPwd(e.target.value)} required
-                  placeholder="Votre mot de passe actuel"
+                <input type="password" value={currentPwd} onChange={(e) => setCurrentPwd(e.target.value)} required placeholder="Votre mot de passe actuel"
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nouveau mot de passe</label>
-                <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} required minLength={6}
-                  placeholder="Min. 6 caracteres"
+                <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} required minLength={6} placeholder="Min. 6 caracteres"
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Confirmer</label>
-                <input type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} required minLength={6}
-                  placeholder="Retapez le nouveau mot de passe"
+                <input type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} required minLength={6} placeholder="Retapez le nouveau mot de passe"
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none text-sm" />
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => { setPasswordModal(false); setCurrentPwd(''); setNewPwd(''); setConfirmPwd(''); }}
-                  className="flex-1 py-2.5 border border-gray-200 text-gray-600 font-medium rounded-xl hover:bg-gray-50">
-                  Annuler
-                </button>
+                  className="flex-1 py-2.5 border border-gray-200 text-gray-600 font-medium rounded-xl hover:bg-gray-50">Annuler</button>
                 <button type="submit" disabled={changingPwd}
                   className="flex-1 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white font-medium rounded-xl hover:from-violet-700 hover:to-fuchsia-600 disabled:opacity-50">
                   {changingPwd ? 'Enregistrement...' : 'Confirmer'}
@@ -281,7 +244,6 @@ export default function Layout() {
         </div>
       )}
 
-      {/* Scrollbar personnalisé */}
       <style>{`
         .sidebar-scroll::-webkit-scrollbar { width: 4px; }
         .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
